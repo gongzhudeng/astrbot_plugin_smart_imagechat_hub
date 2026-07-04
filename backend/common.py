@@ -50,7 +50,6 @@ PROACTIVE_EMOJI_TASK_EXTRA_KEY = "smart_imagesender_proactive_emoji_task"
 PROACTIVE_EMOJI_FAST_FALLBACK_EXTRA_KEY = (
     "smart_imagesender_proactive_emoji_fast_fallback"
 )
-SENT_IMAGE_CONTEXT_EXTRA_KEY = "smart_imagesender_sent_image_context"
 PENDING_MEME_COMBAT_IMAGE_EXTRA_KEY = "smart_imagesender_pending_meme_combat_image"
 PENDING_SEND_IMAGE_STYLE_CLEANUP_EXTRA_KEY = (
     "smart_imagesender_pending_send_image_style_cleanup"

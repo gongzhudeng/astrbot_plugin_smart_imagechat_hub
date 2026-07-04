@@ -15,7 +15,6 @@ from .common import (
     SEARCH_CANDIDATE_LIMIT,
     SEARCH_QUERY_STOPWORDS,
     SEARCH_SELECTION_POOL_SIZE,
-    SENT_IMAGE_CONTEXT_EXTRA_KEY,
     SKIP_PROACTIVE_EMOJI_EXTRA_KEY,
     TAG_CATEGORY_CONFIG_KEY,
     USER_SEARCH_CONFIG_KEY,
@@ -706,13 +705,10 @@ class RetrievalMixin:
                 PENDING_PROACTIVE_EMOJI_EXTRA_KEY,
                 {"image_path": str(image_path)},
             )
-        event.set_extra(
-            SENT_IMAGE_CONTEXT_EXTRA_KEY,
-            {
-                "tags": image_tags,
-                "filename": image_item.get("filename", ""),
-            },
-        )
+        self._pending_image_inject_contexts[event.unified_msg_origin] = {
+            "tags": image_tags,
+            "filename": image_item.get("filename", ""),
+        }
 
     async def _send_pending_proactive_emoji(self, event: AstrMessageEvent) -> None:
         pending = event.get_extra(PENDING_PROACTIVE_EMOJI_EXTRA_KEY)

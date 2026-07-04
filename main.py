@@ -32,7 +32,6 @@ from .backend.common import (
     PLUGIN_NAME,
     PLUGIN_VERSION,
     Plain,
-    SENT_IMAGE_CONTEXT_EXTRA_KEY,
     SKIP_PROACTIVE_EMOJI_EXTRA_KEY,
     TextPart,
     WakeImageRequestFilter,
@@ -77,6 +76,11 @@ class SmartImageSenderPlugin(
         self.external_import_state_path = self.data_dir / EXTERNAL_IMPORT_STATE_FILENAME
         self.imagebed_import_state_path = self.data_dir / IMAGEBED_IMPORT_STATE_FILENAME
         self.imagebed_discarded_path = self.data_dir / IMAGEBED_IMPORT_DISCARDED_FILENAME
+        self._pending_image_inject_contexts: dict[str, dict] = {}
+        # Populated after an image is sent; consumed in the *next* on_llm_request
+        # to inject the tag text directly into req.extra_user_content_parts,
+        # bypassing compact so the LLM always sees it.
+        self._sent_image_for_next_req: dict[str, str] = {}
         self._lock = asyncio.Lock()
         self._caption_provider_call_lock = asyncio.Lock()
         self._last_caption_provider_call_at = 0.0
@@ -295,13 +299,10 @@ class SmartImageSenderPlugin(
         finally:
             self._cleanup_temp_paths(cleanup_paths)
 
-        event.set_extra(
-            SENT_IMAGE_CONTEXT_EXTRA_KEY,
-            {
-                "tags": image_tags,
-                "filename": image_item.get("filename", ""),
-            },
-        )
+        self._pending_image_inject_contexts[event.unified_msg_origin] = {
+            "tags": image_tags,
+            "filename": image_item.get("filename", ""),
+        }
         event.stop_event()
 
     @filter.on_decorating_result(priority=20)
@@ -310,6 +311,13 @@ class SmartImageSenderPlugin(
 
     @filter.on_llm_request(priority=20)
     async def on_llm_request(self, event: AstrMessageEvent, req):
+        # Inject the last sent image tags directly into the current user message
+        # so they survive compact and are always visible to the LLM.
+        sent_tag_text = self._sent_image_for_next_req.pop(
+            event.unified_msg_origin, None
+        )
+        if sent_tag_text:
+            req.extra_user_content_parts.append(TextPart(text=sent_tag_text))
         await self._start_parallel_proactive_emoji(
             event,
             event.get_message_str() or "",

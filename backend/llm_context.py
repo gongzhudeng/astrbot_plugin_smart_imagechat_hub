@@ -1,10 +1,10 @@
 import copy
 import inspect
+import json
 
 from .common import (
     AstrMessageEvent,
     MODEL_FALLBACK_CONFIG_KEY,
-    SENT_IMAGE_CONTEXT_EXTRA_KEY,
     asyncio,
     logger,
     time,
@@ -59,10 +59,11 @@ class LLMContextMixin:
         the system-prompt layer (persona, external injections) or breaking any
         prompt cache.
         """
-        pending = event.get_extra(SENT_IMAGE_CONTEXT_EXTRA_KEY)
+        pending = self._pending_image_inject_contexts.pop(
+            event.unified_msg_origin, None
+        )
         if not isinstance(pending, dict):
             return
-        event.set_extra(SENT_IMAGE_CONTEXT_EXTRA_KEY, None)
 
         proactive_cfg = self.config.get("proactive_emoji_reply", {})
         if not isinstance(proactive_cfg, dict):
@@ -93,21 +94,45 @@ class LLMContextMixin:
             conversation = await conv_mgr.get_conversation(umo, cid)
             if conversation is None:
                 return
-            try:
-                history: list = list(
-                    getattr(conversation, "history", None)
-                    or []
-                )
-            except Exception:
+
+            raw_history = getattr(conversation, "history", None)
+            if isinstance(raw_history, list):
+                history: list = list(raw_history)
+            elif isinstance(raw_history, str) and raw_history:
+                try:
+                    parsed = json.loads(raw_history)
+                    history = list(parsed) if isinstance(parsed, list) else []
+                except Exception:
+                    history = []
+            else:
                 history = []
-            history.append({"role": "assistant", "content": content})
+
+            # Insert just before the last user message so that the injected
+            # assistant turn forms a valid assistant→user pair. Compact keeps
+            # the last user message, so it will carry this entry along.
+            insert_idx = len(history)
+            for i in range(len(history) - 1, -1, -1):
+                if isinstance(history[i], dict) and history[i].get("role") == "user":
+                    insert_idx = i
+                    break
+            history.insert(insert_idx, {"role": "assistant", "content": content})
             await conv_mgr.update_conversation(
                 unified_msg_origin=umo,
                 conversation_id=cid,
                 history=history,
             )
+            logger.info(
+                "astrbot_plugin_smart_imagechat_hub: [inject] done; history_len=%d content=%r",
+                len(history),
+                content,
+            )
+            # Also store for on_llm_request so the text is appended to
+            # extra_user_content_parts after compact, guaranteeing LLM sees it.
+            sent_map = getattr(self, "_sent_image_for_next_req", None)
+            if isinstance(sent_map, dict):
+                sent_map[umo] = content
         except Exception as exc:
-            logger.debug(
+            logger.warning(
                 "astrbot_plugin_smart_imagechat_hub: failed to inject sent-image "
                 "context into history: %s",
                 str(exc) or type(exc).__name__,
