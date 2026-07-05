@@ -932,6 +932,9 @@ class CaptionLibraryMixin:
             "context_injection_enabled": self._to_bool(
                 raw.get("context_injection_enabled"), True
             ),
+            "context_injection_bot_name": str(
+                raw.get("context_injection_bot_name") or ""
+            ).strip(),
         }
 
     def _chat_provider_options(self) -> list[dict[str, str]]:

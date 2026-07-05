@@ -255,6 +255,9 @@ const els = {
   proactiveEmojiContextInjectionInput: document.getElementById(
     "proactiveEmojiContextInjectionInput",
   ),
+  proactiveEmojiBotNameInput: document.getElementById(
+    "proactiveEmojiBotNameInput",
+  ),
   proactiveEmojiMessage: document.getElementById("proactiveEmojiMessage"),
   proactiveEmojiSaveButton: document.getElementById("proactiveEmojiSaveButton"),
   proactiveEmojiCancelButton: document.getElementById(
