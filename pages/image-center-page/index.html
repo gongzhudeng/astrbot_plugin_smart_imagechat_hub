@@ -673,6 +673,15 @@
                 </label>
               </div>
             </div>
+            <div class="config-item">
+              <div class="config-item-copy">
+                <label for="proactiveEmojiBotNameInput">注入文本中的角色名称</label>
+                <p>填入后，注入文本变为「[{名称}刚才发送了一张表情包，特征标签：xxx]」，使 LLM 明确知道是自己发的图。留空则使用默认的系统提示格式。示例：小怡</p>
+              </div>
+              <div class="config-item-control">
+                <input id="proactiveEmojiBotNameInput" type="text" placeholder="留空则使用默认格式" style="width:180px" />
+              </div>
+            </div>
           </section>
         </div>
 
