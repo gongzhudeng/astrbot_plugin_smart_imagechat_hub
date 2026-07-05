@@ -77,11 +77,24 @@ class LLMContextMixin:
         tags = [str(t).strip() for t in tags if str(t).strip()]
 
         tag_text = "、".join(tags) if tags else ""
-        content = (
-            f"[已发送一张表情包，特征标签：{tag_text}]"
-            if tag_text
-            else "[已发送一张表情包]"
-        )
+
+        # Build the injection text.  An optional bot_name makes it explicit
+        # that the *AI* sent the image (e.g. "小怡刚才发送了一张表情包").
+        # Without it we fall back to a system-hint phrasing so the LLM cannot
+        # mistake the image as having been sent by the user.
+        bot_name = str(proactive_cfg.get("context_injection_bot_name") or "").strip()
+        if bot_name:
+            content = (
+                f"[{bot_name}刚才发送了一张表情包，特征标签：{tag_text}]"
+                if tag_text
+                else f"[{bot_name}刚才发送了一张表情包]"
+            )
+        else:
+            content = (
+                f"[系统提示：你刚才主动发送了一张表情包，特征标签：{tag_text}]"
+                if tag_text
+                else "[系统提示：你刚才主动发送了一张表情包]"
+            )
 
         try:
             conv_mgr = getattr(self.context, "conversation_manager", None)
