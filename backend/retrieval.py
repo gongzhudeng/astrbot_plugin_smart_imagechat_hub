@@ -26,6 +26,7 @@ from .common import (
     traceback,
 )
 from .proactive_fast_retrieval import (
+    PROACTIVE_BOT_REPLY_FAST_RETRIEVAL_MODE,
     PROACTIVE_FAST_RETRIEVAL_MODE,
     PROACTIVE_FAST_SYSTEM_PROMPT,
     build_proactive_fast_prefilter,
@@ -34,6 +35,7 @@ from .proactive_fast_retrieval import (
 
 PROACTIVE_EMOJI_SOURCE_BOT_REPLY = "bot_reply"
 PROACTIVE_EMOJI_SOURCE_USER_MESSAGE = "user_message"
+PROACTIVE_EMOJI_RECENT_REL_PATH_LIMIT = 12
 
 
 class RetrievalMixin:
@@ -396,15 +398,43 @@ class RetrievalMixin:
             self._log_proactive_emoji_debug(cfg, "serial flow stopped; no candidates.")
             return
 
-        try:
-            decision = await self._analyze_proactive_emoji(
-                event,
-                reply_text,
-                candidates,
-                str(cfg.get("analysis_provider_id") or ""),
-                source_kind=PROACTIVE_EMOJI_SOURCE_BOT_REPLY,
-                cfg=cfg,
+        fast_prefilter = None
+        if cfg.get("retrieval_mode") == PROACTIVE_BOT_REPLY_FAST_RETRIEVAL_MODE:
+            fast_prefilter = build_proactive_fast_prefilter(reply_text, candidates)
+            candidates = fast_prefilter.candidates
+            self._log_proactive_emoji_debug(
+                cfg,
+                "bot-reply fast ranking finished; prompt_candidate_count=%d fallback=%s profile=%s",
+                len(candidates),
+                bool(fast_prefilter.fallback_item),
+                fast_prefilter.profile,
             )
+            if not candidates:
+                self._log_proactive_emoji_debug(
+                    cfg,
+                    "bot-reply fast flow stopped; no prefilter candidates.",
+                )
+                return
+
+        try:
+            if fast_prefilter is not None:
+                decision = await self._analyze_fast_proactive_emoji(
+                    event,
+                    reply_text,
+                    fast_prefilter,
+                    str(cfg.get("analysis_provider_id") or ""),
+                    cfg=cfg,
+                    source_kind=PROACTIVE_EMOJI_SOURCE_BOT_REPLY,
+                )
+            else:
+                decision = await self._analyze_proactive_emoji(
+                    event,
+                    reply_text,
+                    candidates,
+                    str(cfg.get("analysis_provider_id") or ""),
+                    source_kind=PROACTIVE_EMOJI_SOURCE_BOT_REPLY,
+                    cfg=cfg,
+                )
             self._log_proactive_emoji_debug(
                 cfg,
                 "serial LLM analysis finished; matched=%s confidence=%s image_ids=%s",
@@ -665,6 +695,7 @@ class RetrievalMixin:
         if not image_item:
             self._log_proactive_emoji_debug(cfg, "apply skipped; no selected image.")
             return
+        self._remember_recent_proactive_emoji(image_item)
         image_path = self._abs_plugin_data_path(image_item["rel_path"])
         if not image_path.is_file():
             self._log_proactive_emoji_debug(
@@ -759,12 +790,33 @@ class RetrievalMixin:
 
     def _proactive_emoji_candidates(self, meme_only: bool) -> list[dict[str, Any]]:
         candidates = self._library_candidates()
-        if not meme_only:
+        if meme_only:
+            candidates = [
+                item
+                for item in candidates
+                if "表情包" in self._normalize_tags(item.get("tags", []))
+            ]
+        return self._exclude_recent_proactive_emoji_candidates(candidates)
+
+    def _exclude_recent_proactive_emoji_candidates(
+        self,
+        candidates: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        recent = set(getattr(self, "_recent_proactive_emoji_rel_paths", []) or [])
+        if not recent:
             return candidates
-        return [
-            item
-            for item in candidates
-            if "表情包" in self._normalize_tags(item.get("tags", []))
+        filtered = [item for item in candidates if str(item.get("rel_path") or "") not in recent]
+        return filtered or candidates
+
+    def _remember_recent_proactive_emoji(self, image_item: dict[str, Any]) -> None:
+        rel_path = str(image_item.get("rel_path") or "").strip()
+        if not rel_path:
+            return
+        recent = list(getattr(self, "_recent_proactive_emoji_rel_paths", []) or [])
+        recent = [item for item in recent if item != rel_path]
+        recent.insert(0, rel_path)
+        self._recent_proactive_emoji_rel_paths = recent[
+            :PROACTIVE_EMOJI_RECENT_REL_PATH_LIMIT
         ]
 
     async def _analyze_proactive_emoji(
@@ -835,12 +887,17 @@ class RetrievalMixin:
     async def _analyze_fast_proactive_emoji(
         self,
         event: AstrMessageEvent,
-        user_message: str,
+        source_text: str,
         prefilter: Any,
         provider_id: str,
         cfg: dict[str, Any] | None = None,
+        source_kind: str = PROACTIVE_EMOJI_SOURCE_USER_MESSAGE,
     ) -> dict[str, Any]:
-        prompt = build_proactive_fast_prompt(user_message, prefilter)
+        prompt = build_proactive_fast_prompt(
+            source_text,
+            prefilter,
+            source_kind=source_kind,
+        )
         inherits_current = self._provider_id_inherits_current_chat_model(provider_id)
         previous_internal_marker = event.get_extra(
             PROACTIVE_EMOJI_INTERNAL_LLM_EXTRA_KEY,

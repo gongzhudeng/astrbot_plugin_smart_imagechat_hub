@@ -81,6 +81,7 @@ class SmartImageSenderPlugin(
         # to inject the tag text directly into req.extra_user_content_parts,
         # bypassing compact so the LLM always sees it.
         self._sent_image_for_next_req: dict[str, str] = {}
+        self._recent_proactive_emoji_rel_paths: list[str] = []
         self._lock = asyncio.Lock()
         self._caption_provider_call_lock = asyncio.Lock()
         self._last_caption_provider_call_at = 0.0

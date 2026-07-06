@@ -4,6 +4,7 @@ from .common import Any, SEARCH_CANDIDATE_LIMIT, SEARCH_SELECTION_POOL_SIZE, jso
 
 
 PROACTIVE_FAST_RETRIEVAL_MODE = "user_message_fast_prefilter"
+PROACTIVE_BOT_REPLY_FAST_RETRIEVAL_MODE = "bot_reply_fast_prefilter"
 PROACTIVE_FAST_CANDIDATE_LIMIT = SEARCH_CANDIDATE_LIMIT
 PROACTIVE_FAST_FALLBACK_MIN_SCORE = 6.0
 PROACTIVE_FAST_SYSTEM_PROMPT = (
@@ -178,16 +179,25 @@ def build_proactive_fast_prefilter(
 
 
 def build_proactive_fast_prompt(
-    user_message: str,
+    source_text: str,
     prefilter: ProactiveFastPrefilterResult,
+    source_kind: str = "user_message",
 ) -> str:
     compact_candidates = [_fast_prompt_item(item) for item in prefilter.candidates]
+    if source_kind == "bot_reply":
+        source_label = "bot 的 LLM 回复"
+        target_rule = "只看 bot 即将发送的回复和候选；候选不贴切就 matched=false。"
+        generic_rule = "普通说明、没有明确情绪或没有适合追加表情包氛围时不要硬选。"
+    else:
+        source_label = "用户消息"
+        target_rule = "只看用户刚才的话和候选；候选不贴切就 matched=false。"
+        generic_rule = "泛化请求、无明确情绪或无明确标签需求时不要硬选。"
     return (
         "判断是否在普通回复后追加 1 张主动表情包。\n"
-        "只看用户刚才的话和候选；候选不贴切就 matched=false。\n"
-        "泛化请求、无明确情绪或无明确标签需求时不要硬选。\n"
+        f"{target_rule}\n"
+        f"{generic_rule}\n"
         "可返回 1-3 个 image_ids，按贴切度排序；confidence 低于 0.35 返回 false。\n\n"
-        f"用户消息：\n{user_message}\n\n"
+        f"{source_label}：\n{source_text}\n\n"
         f"本地精排：{json.dumps(prefilter.profile, ensure_ascii=False)}\n\n"
         "候选：\n"
         f"{json.dumps(compact_candidates, ensure_ascii=False)}\n\n"
