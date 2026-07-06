@@ -36,6 +36,9 @@ from .proactive_fast_retrieval import (
 PROACTIVE_EMOJI_SOURCE_BOT_REPLY = "bot_reply"
 PROACTIVE_EMOJI_SOURCE_USER_MESSAGE = "user_message"
 PROACTIVE_EMOJI_RECENT_REL_PATH_LIMIT = 12
+PROACTIVE_EMOJI_MIN_ANALYSIS_TIMEOUT_SECONDS = 3.0
+PROACTIVE_EMOJI_MAX_ANALYSIS_TIMEOUT_SECONDS = 120.0
+PROACTIVE_EMOJI_DEFAULT_ANALYSIS_TIMEOUT_SECONDS = 18.0
 
 
 class RetrievalMixin:
@@ -98,6 +101,21 @@ class RetrievalMixin:
             cfg,
             message,
             self._proactive_emoji_error_info(exc),
+        )
+
+    def _proactive_emoji_analysis_timeout_seconds(
+        self,
+        cfg: dict[str, Any] | None,
+    ) -> float:
+        if not isinstance(cfg, dict):
+            return PROACTIVE_EMOJI_DEFAULT_ANALYSIS_TIMEOUT_SECONDS
+        timeout_seconds = self._to_float(
+            cfg.get("analysis_timeout_seconds"),
+            PROACTIVE_EMOJI_DEFAULT_ANALYSIS_TIMEOUT_SECONDS,
+        )
+        return max(
+            PROACTIVE_EMOJI_MIN_ANALYSIS_TIMEOUT_SECONDS,
+            min(timeout_seconds, PROACTIVE_EMOJI_MAX_ANALYSIS_TIMEOUT_SECONDS),
         )
 
     def _library_candidates(self) -> list[dict[str, Any]]:
@@ -844,12 +862,18 @@ class RetrievalMixin:
                 inherits_current,
                 len(candidates),
             )
+            timeout_seconds = self._proactive_emoji_analysis_timeout_seconds(cfg)
+            self._log_proactive_emoji_debug(
+                cfg,
+                "proactive emoji analysis timeout set; seconds=%s",
+                timeout_seconds,
+            )
             resp = await self._llm_generate_with_provider_fallback(
                 primary_provider_id="" if inherits_current else provider_id,
                 umo=event.unified_msg_origin,
                 use_current_when_primary_empty=True,
                 operation_name="proactive emoji analysis",
-                timeout_seconds=None,
+                timeout_seconds=timeout_seconds,
                 use_isolated_openai_compatible_lane=inherits_current,
                 prompt=prompt,
                 contexts=[],
@@ -912,12 +936,18 @@ class RetrievalMixin:
                 inherits_current,
                 len(prefilter.candidates),
             )
+            timeout_seconds = self._proactive_emoji_analysis_timeout_seconds(cfg)
+            self._log_proactive_emoji_debug(
+                cfg,
+                "fast proactive emoji analysis timeout set; seconds=%s",
+                timeout_seconds,
+            )
             resp = await self._llm_generate_with_provider_fallback(
                 primary_provider_id="" if inherits_current else provider_id,
                 umo=event.unified_msg_origin,
                 use_current_when_primary_empty=True,
                 operation_name="proactive emoji fast analysis",
-                timeout_seconds=None,
+                timeout_seconds=timeout_seconds,
                 use_isolated_openai_compatible_lane=inherits_current,
                 prompt=prompt,
                 contexts=[],

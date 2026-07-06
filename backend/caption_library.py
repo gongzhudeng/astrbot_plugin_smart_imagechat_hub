@@ -915,13 +915,20 @@ class CaptionLibraryMixin:
             "bot_reply_serial",
             "user_message_parallel",
             "user_message_fast_prefilter",
+            "bot_reply_fast_prefilter",
         }:
             retrieval_mode = "bot_reply_serial"
         probability = self._to_float(raw.get("trigger_probability"), 0.25)
+        analysis_timeout_seconds = self._to_float(
+            raw.get("analysis_timeout_seconds"),
+            18.0,
+        )
+        analysis_timeout_seconds = max(3.0, min(analysis_timeout_seconds, 120.0))
         return {
             "enabled": self._to_bool(raw.get("enabled"), False),
             "analysis_provider_id": provider_id,
             "retrieval_mode": retrieval_mode,
+            "analysis_timeout_seconds": analysis_timeout_seconds,
             "meme_only": self._to_bool(raw.get("meme_only"), True),
             "embed_in_conversation": self._to_bool(
                 raw.get("embed_in_conversation"),

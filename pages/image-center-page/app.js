@@ -249,6 +249,9 @@ const els = {
   proactiveEmojiProbabilityInput: document.getElementById(
     "proactiveEmojiProbabilityInput",
   ),
+  proactiveEmojiAnalysisTimeoutInput: document.getElementById(
+    "proactiveEmojiAnalysisTimeoutInput",
+  ),
   proactiveEmojiDebugModeInput: document.getElementById(
     "proactiveEmojiDebugModeInput",
   ),
@@ -581,6 +584,7 @@ const proactiveEmojiRetrievalModes = new Set([
   "bot_reply_serial",
   "user_message_parallel",
   "user_message_fast_prefilter",
+  "bot_reply_fast_prefilter",
 ]);
 let autoCollectionConfigCache = {
   pending_pool_limit: 100,
@@ -4364,6 +4368,9 @@ function fillProactiveEmojiDialog(config) {
   els.proactiveEmojiProbabilityInput.value = String(
     config.trigger_probability ?? "0.25",
   );
+  els.proactiveEmojiAnalysisTimeoutInput.value = String(
+    clampIntRange(config.analysis_timeout_seconds, 18, 3, 120),
+  );
   els.proactiveEmojiDebugModeInput.checked = config.debug_mode === true;
   els.proactiveEmojiContextInjectionInput.checked =
     config.context_injection_enabled !== false;
@@ -4629,6 +4636,12 @@ function readProactiveEmojiDialog() {
     embed_in_conversation: els.proactiveEmojiEmbedInput.checked,
     trigger_probability: String(
       clampProbability(els.proactiveEmojiProbabilityInput.value),
+    ),
+    analysis_timeout_seconds: clampIntRange(
+      els.proactiveEmojiAnalysisTimeoutInput.value,
+      18,
+      3,
+      120,
     ),
     debug_mode: els.proactiveEmojiDebugModeInput.checked,
     context_injection_enabled: els.proactiveEmojiContextInjectionInput.checked,
