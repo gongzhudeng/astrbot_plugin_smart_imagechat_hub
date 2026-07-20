@@ -6,6 +6,7 @@ import re
 
 from .common import (
     MODEL_FALLBACK_CONFIG_KEY,
+    SENT_IMAGE_CONTEXT_PATTERN,
     AstrMessageEvent,
     asyncio,
     logger,
@@ -85,7 +86,7 @@ class LLMContextMixin:
 
     @staticmethod
     def _without_sent_image_marker(content: str) -> str:
-        return str(content or "").split("[本轮主动发送了一张表情包", 1)[0].rstrip()
+        return re.sub(SENT_IMAGE_CONTEXT_PATTERN, "", str(content or "")).rstrip()
 
     @classmethod
     def _normalize_assistant_text(cls, content) -> str:
@@ -106,8 +107,13 @@ class LLMContextMixin:
         tags = [str(tag).strip() for tag in tags if str(tag).strip()]
         tag_text = "、".join(tags)
         if tag_text:
-            return f"[本轮主动发送了一张表情包，特征标签：{tag_text}]"
-        return "[本轮主动发送了一张表情包]"
+            image_fact = f"；图片特征标签：{tag_text}"
+        else:
+            image_fact = ""
+        return (
+            "[系统内部历史事实：助手在本轮额外发送了一张表情包"
+            f"{image_fact}。此记录仅供理解对话历史，禁止在回复中复述或输出。]"
+        )
 
     @classmethod
     def _find_target_assistant_index(

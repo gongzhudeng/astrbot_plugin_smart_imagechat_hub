@@ -50,6 +50,14 @@ PROACTIVE_EMOJI_TASK_EXTRA_KEY = "smart_imagesender_proactive_emoji_task"
 PROACTIVE_EMOJI_FAST_FALLBACK_EXTRA_KEY = (
     "smart_imagesender_proactive_emoji_fast_fallback"
 )
+SENT_IMAGE_CONTEXT_PATTERN = (
+    r"(?:\r?\n)?\[(?:"
+    r"本轮主动发送了一张表情包(?:，特征标签：[^\]\r\n]*)?"
+    r"|系统内部历史事实：助手在本轮额外发送了一张表情包"
+    r"(?:；图片特征标签：[^\]\r\n]*?)?。"
+    r"此记录仅供理解对话历史，禁止在回复中复述或输出。"
+    r")\]"
+)
 PENDING_MEME_COMBAT_IMAGE_EXTRA_KEY = "smart_imagesender_pending_meme_combat_image"
 PENDING_SEND_IMAGE_STYLE_CLEANUP_EXTRA_KEY = (
     "smart_imagesender_pending_send_image_style_cleanup"

@@ -9,6 +9,7 @@ from .common import (
     SEARCH_CANDIDATE_LIMIT,
     SEARCH_QUERY_STOPWORDS,
     SEARCH_SELECTION_POOL_SIZE,
+    SENT_IMAGE_CONTEXT_PATTERN,
     SKIP_PROACTIVE_EMOJI_EXTRA_KEY,
     TAG_CATEGORY_CONFIG_KEY,
     USER_SEARCH_CONFIG_KEY,
@@ -43,6 +44,44 @@ PROACTIVE_EMOJI_DEFAULT_ANALYSIS_TIMEOUT_SECONDS = 18.0
 
 
 class RetrievalMixin:
+    @staticmethod
+    def _strip_sent_image_context_marker(text: str) -> str:
+        return re.sub(SENT_IMAGE_CONTEXT_PATTERN, "", str(text or "")).rstrip()
+
+    @classmethod
+    def _sanitize_sent_image_context_markers(
+        cls,
+        result: MessageEventResult,
+    ) -> bool:
+        changed = False
+        sanitized_chain = []
+        for component in result.chain:
+            if not isinstance(component, Plain):
+                sanitized_chain.append(component)
+                continue
+            sanitized_text = cls._strip_sent_image_context_marker(component.text)
+            if sanitized_text == component.text:
+                sanitized_chain.append(component)
+                continue
+            changed = True
+            if sanitized_text:
+                component.text = sanitized_text
+                sanitized_chain.append(component)
+        if changed:
+            result.chain = sanitized_chain
+        return changed
+
+    def _log_proactive_emoji_outcome(self, outcome: str, **details: Any) -> None:
+        detail_text = " ".join(
+            f"{key}={value}" for key, value in details.items() if value not in (None, "")
+        )
+        suffix = f"; {detail_text}" if detail_text else ""
+        logger.info(
+            "astrbot_plugin_smart_imagechat_hub: proactive emoji outcome=%s%s",
+            outcome,
+            suffix,
+        )
+
     def _proactive_emoji_debug_enabled(self, cfg: dict[str, Any] | None) -> bool:
         if not isinstance(cfg, dict):
             return False
@@ -277,6 +316,14 @@ class RetrievalMixin:
         }
 
     async def _maybe_append_proactive_emoji(self, event: AstrMessageEvent) -> None:
+        result = event.get_result()
+        if isinstance(result, MessageEventResult):
+            if self._sanitize_sent_image_context_markers(result):
+                logger.warning(
+                    "astrbot_plugin_smart_imagechat_hub: removed internal sent-image "
+                    "context marker from outgoing LLM text"
+                )
+
         if event.get_extra(SKIP_PROACTIVE_EMOJI_EXTRA_KEY, False):
             return
         task = event.get_extra(PROACTIVE_EMOJI_TASK_EXTRA_KEY)
@@ -290,7 +337,6 @@ class RetrievalMixin:
             cfg.get("analysis_provider_id") or "<current>",
         )
 
-        result = event.get_result()
         if not isinstance(result, MessageEventResult) or not result.is_llm_result():
             self._log_proactive_emoji_debug(
                 cfg, "append skipped; result is not LLM output."
@@ -412,6 +458,9 @@ class RetrievalMixin:
             self._log_proactive_emoji_debug(
                 cfg, "serial flow skipped; probability missed."
             )
+            self._log_proactive_emoji_outcome(
+                "probability_missed", mode=cfg.get("retrieval_mode")
+            )
             return
         self._log_proactive_emoji_debug(cfg, "serial flow probability hit.")
 
@@ -426,6 +475,9 @@ class RetrievalMixin:
         )
         if not candidates:
             self._log_proactive_emoji_debug(cfg, "serial flow stopped; no candidates.")
+            self._log_proactive_emoji_outcome(
+                "no_candidates", mode=cfg.get("retrieval_mode")
+            )
             return
 
         fast_prefilter = None
@@ -443,6 +495,9 @@ class RetrievalMixin:
                 self._log_proactive_emoji_debug(
                     cfg,
                     "bot-reply fast flow stopped; no prefilter candidates.",
+                )
+                self._log_proactive_emoji_outcome(
+                    "no_prefilter_candidates", mode=cfg.get("retrieval_mode")
                 )
                 return
 
@@ -522,6 +577,9 @@ class RetrievalMixin:
         if not self._proactive_emoji_probability_hit(cfg):
             self._log_proactive_emoji_debug(
                 cfg, "parallel flow skipped; probability missed."
+            )
+            self._log_proactive_emoji_outcome(
+                "probability_missed", mode=cfg.get("retrieval_mode")
             )
             return
         self._log_proactive_emoji_debug(cfg, "parallel flow probability hit.")
@@ -605,6 +663,9 @@ class RetrievalMixin:
                 self._log_proactive_emoji_debug(
                     cfg, "parallel flow stopped; no candidates."
                 )
+                self._log_proactive_emoji_outcome(
+                    "no_candidates", mode=cfg.get("retrieval_mode")
+                )
                 return None
             decision = await self._analyze_proactive_emoji(
                 event,
@@ -658,6 +719,9 @@ class RetrievalMixin:
             if not candidates:
                 self._log_proactive_emoji_debug(
                     cfg, "fast flow stopped; no candidates."
+                )
+                self._log_proactive_emoji_outcome(
+                    "no_candidates", mode=cfg.get("retrieval_mode")
                 )
                 return None
 
@@ -732,6 +796,9 @@ class RetrievalMixin:
     ) -> None:
         if not image_item:
             self._log_proactive_emoji_debug(cfg, "apply skipped; no selected image.")
+            self._log_proactive_emoji_outcome(
+                "not_selected", mode=cfg.get("retrieval_mode")
+            )
             return
         self._remember_recent_proactive_emoji(image_item)
         image_path = self._abs_plugin_data_path(image_item["rel_path"])
@@ -740,6 +807,9 @@ class RetrievalMixin:
                 cfg,
                 "apply skipped; image file missing: %s",
                 image_item.get("rel_path"),
+            )
+            self._log_proactive_emoji_outcome(
+                "file_missing", rel_path=image_item.get("rel_path")
             )
             return
         image_tags = self._tags_from_item(image_item)
@@ -764,6 +834,9 @@ class RetrievalMixin:
                 source="proactive_emoji",
                 defer_burst=True,
             )
+            self._log_proactive_emoji_outcome(
+                "embedded", rel_path=image_item.get("rel_path")
+            )
         else:
             self._log_proactive_emoji_debug(
                 cfg,
@@ -773,6 +846,9 @@ class RetrievalMixin:
             event.set_extra(
                 PENDING_PROACTIVE_EMOJI_EXTRA_KEY,
                 {"image_path": str(image_path)},
+            )
+            self._log_proactive_emoji_outcome(
+                "queued", rel_path=image_item.get("rel_path")
             )
         assistant_text = "".join(
             str(component.text or "")
@@ -1063,12 +1139,16 @@ class RetrievalMixin:
             self._log_proactive_emoji_debug(
                 cfg, "selection stopped; LLM decision unmatched."
             )
+            self._log_proactive_emoji_outcome("model_unmatched")
             return None
         if self._to_float(decision.get("confidence"), 0.0) < 0.35:
             self._log_proactive_emoji_debug(
                 cfg,
                 "selection stopped; confidence below threshold: %s",
                 decision.get("confidence"),
+            )
+            self._log_proactive_emoji_outcome(
+                "confidence_too_low", confidence=decision.get("confidence")
             )
             return None
         candidate_by_id = {str(item["id"]): item for item in candidates}
