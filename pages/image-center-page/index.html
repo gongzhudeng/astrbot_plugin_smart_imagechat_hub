@@ -681,23 +681,14 @@
             </div>
             <div class="config-item">
               <div class="config-item-copy">
-                <label for="proactiveEmojiContextInjectionInput">启用表情包记忆注入</label>
-                <p>开启后，每次发出图片都会在对话历史末尾追加一条简短记录，使 LLM 知道自己刚发了什么图。不影响人设或其他提示词。</p>
+                <label for="proactiveEmojiContextInjectionInput">将表情包标签写入本轮 AI 回复历史</label>
+                <p>开启后，主动发送表情包成功时，将标签追加到本轮 assistant 回复内容中；不会把标签注入下一轮用户消息。</p>
               </div>
               <div class="config-item-control">
                 <label class="switch-option">
                   <input id="proactiveEmojiContextInjectionInput" type="checkbox" />
                   <span> </span>
                 </label>
-              </div>
-            </div>
-            <div class="config-item">
-              <div class="config-item-copy">
-                <label for="proactiveEmojiBotNameInput">注入文本中的角色名称</label>
-                <p>填入后，注入文本变为「[{名称}刚才发送了一张表情包，特征标签：xxx]」，使 LLM 明确知道是自己发的图。留空则使用默认的系统提示格式。示例：小怡</p>
-              </div>
-              <div class="config-item-control">
-                <input id="proactiveEmojiBotNameInput" type="text" placeholder="留空则使用默认格式" style="width:180px" />
               </div>
             </div>
           </section>

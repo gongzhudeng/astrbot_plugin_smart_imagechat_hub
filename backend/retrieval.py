@@ -1,15 +1,9 @@
 from .common import (
-    Any,
-    AstrMessageEvent,
-    CaptionGenerationError,
     COLLECTED_LIBRARY_SOURCE,
     DEFAULT_CAPTION_PROVIDER_CONFIG_KEY,
-    Image,
-    MessageEventResult,
-    PROACTIVE_EMOJI_FAST_FALLBACK_EXTRA_KEY,
     PENDING_PROACTIVE_EMOJI_EXTRA_KEY,
-    Path,
     PROACTIVE_EMOJI_DECISION_EXTRA_KEY,
+    PROACTIVE_EMOJI_FAST_FALLBACK_EXTRA_KEY,
     PROACTIVE_EMOJI_INTERNAL_LLM_EXTRA_KEY,
     PROACTIVE_EMOJI_TASK_EXTRA_KEY,
     SEARCH_CANDIDATE_LIMIT,
@@ -18,6 +12,13 @@ from .common import (
     SKIP_PROACTIVE_EMOJI_EXTRA_KEY,
     TAG_CATEGORY_CONFIG_KEY,
     USER_SEARCH_CONFIG_KEY,
+    Any,
+    AstrMessageEvent,
+    CaptionGenerationError,
+    Image,
+    MessageEventResult,
+    Path,
+    Plain,
     asyncio,
     json,
     logger,
@@ -56,8 +57,7 @@ class RetrievalMixin:
         if not self._proactive_emoji_debug_enabled(cfg):
             return
         logger.info(
-            "astrbot_plugin_smart_imagechat_hub: proactive emoji debug: "
-            + message,
+            "astrbot_plugin_smart_imagechat_hub: proactive emoji debug: " + message,
             *args,
         )
 
@@ -133,10 +133,10 @@ class RetrievalMixin:
                 continue
             if item.get("caption_status") != "done":
                 continue
-            if (
-                self._library_source_for_rel_path(rel_path, item)
-                == COLLECTED_LIBRARY_SOURCE
-                and not self._auto_collection_config().get("include_in_features")
+            if self._library_source_for_rel_path(
+                rel_path, item
+            ) == COLLECTED_LIBRARY_SOURCE and not self._auto_collection_config().get(
+                "include_in_features"
             ):
                 continue
             if rel_path in hidden_rel_paths:
@@ -292,10 +292,14 @@ class RetrievalMixin:
 
         result = event.get_result()
         if not isinstance(result, MessageEventResult) or not result.is_llm_result():
-            self._log_proactive_emoji_debug(cfg, "append skipped; result is not LLM output.")
+            self._log_proactive_emoji_debug(
+                cfg, "append skipped; result is not LLM output."
+            )
             return
         if any(isinstance(comp, Image) for comp in result.chain):
-            self._log_proactive_emoji_debug(cfg, "append skipped; result already contains image.")
+            self._log_proactive_emoji_debug(
+                cfg, "append skipped; result already contains image."
+            )
             return
 
         if task is not None:
@@ -327,7 +331,9 @@ class RetrievalMixin:
                         )
                 else:
                     task.cancel()
-                    image_item = event.get_extra(PROACTIVE_EMOJI_FAST_FALLBACK_EXTRA_KEY)
+                    image_item = event.get_extra(
+                        PROACTIVE_EMOJI_FAST_FALLBACK_EXTRA_KEY
+                    )
                     self._log_proactive_emoji_debug(
                         cfg,
                         "fast decision task not ready; cancelled and using local fallback=%s.",
@@ -379,7 +385,9 @@ class RetrievalMixin:
             return
 
         if event.get_extra(PROACTIVE_EMOJI_DECISION_EXTRA_KEY, False):
-            self._log_proactive_emoji_debug(cfg, "serial flow skipped; decision already exists.")
+            self._log_proactive_emoji_debug(
+                cfg, "serial flow skipped; decision already exists."
+            )
             return
         if cfg.get("retrieval_mode") in {
             "user_message_parallel",
@@ -394,12 +402,16 @@ class RetrievalMixin:
 
         reply_text = result.get_plain_text().strip()
         if not reply_text:
-            self._log_proactive_emoji_debug(cfg, "serial flow skipped; empty bot reply.")
+            self._log_proactive_emoji_debug(
+                cfg, "serial flow skipped; empty bot reply."
+            )
             return
 
         event.set_extra(PROACTIVE_EMOJI_DECISION_EXTRA_KEY, True)
         if not self._proactive_emoji_probability_hit(cfg):
-            self._log_proactive_emoji_debug(cfg, "serial flow skipped; probability missed.")
+            self._log_proactive_emoji_debug(
+                cfg, "serial flow skipped; probability missed."
+            )
             return
         self._log_proactive_emoji_debug(cfg, "serial flow probability hit.")
 
@@ -501,12 +513,16 @@ class RetrievalMixin:
         )
         user_message = str(user_message or "").strip()
         if not user_message:
-            self._log_proactive_emoji_debug(cfg, "parallel flow skipped; empty user message.")
+            self._log_proactive_emoji_debug(
+                cfg, "parallel flow skipped; empty user message."
+            )
             return
 
         event.set_extra(PROACTIVE_EMOJI_DECISION_EXTRA_KEY, True)
         if not self._proactive_emoji_probability_hit(cfg):
-            self._log_proactive_emoji_debug(cfg, "parallel flow skipped; probability missed.")
+            self._log_proactive_emoji_debug(
+                cfg, "parallel flow skipped; probability missed."
+            )
             return
         self._log_proactive_emoji_debug(cfg, "parallel flow probability hit.")
 
@@ -586,7 +602,9 @@ class RetrievalMixin:
                 bool(cfg["meme_only"]),
             )
             if not candidates:
-                self._log_proactive_emoji_debug(cfg, "parallel flow stopped; no candidates.")
+                self._log_proactive_emoji_debug(
+                    cfg, "parallel flow stopped; no candidates."
+                )
                 return None
             decision = await self._analyze_proactive_emoji(
                 event,
@@ -638,7 +656,9 @@ class RetrievalMixin:
                 bool(cfg["meme_only"]),
             )
             if not candidates:
-                self._log_proactive_emoji_debug(cfg, "fast flow stopped; no candidates.")
+                self._log_proactive_emoji_debug(
+                    cfg, "fast flow stopped; no candidates."
+                )
                 return None
 
             prefilter = build_proactive_fast_prefilter(user_message, candidates)
@@ -754,9 +774,24 @@ class RetrievalMixin:
                 PENDING_PROACTIVE_EMOJI_EXTRA_KEY,
                 {"image_path": str(image_path)},
             )
+        assistant_text = "".join(
+            str(component.text or "")
+            for component in result.chain
+            if isinstance(component, Plain)
+        ).strip()
+        assistant_fingerprint = self._assistant_text_fingerprint(assistant_text)
+        if not assistant_fingerprint:
+            self._log_proactive_emoji_debug(
+                cfg,
+                "context tracking skipped; assistant text is empty.",
+            )
+            return
         self._pending_image_inject_contexts[event.unified_msg_origin] = {
             "tags": image_tags,
             "filename": image_item.get("filename", ""),
+            "source": "proactive_emoji",
+            "assistant_text": assistant_text,
+            "assistant_fingerprint": assistant_fingerprint,
         }
 
     async def _send_pending_proactive_emoji(self, event: AstrMessageEvent) -> None:
@@ -768,6 +803,7 @@ class RetrievalMixin:
         event.set_extra(PENDING_PROACTIVE_EMOJI_EXTRA_KEY, None)
         image_path = Path(str(pending.get("image_path") or ""))
         if not image_path.is_file():
+            self._pending_image_inject_contexts.pop(event.unified_msg_origin, None)
             self._log_proactive_emoji_debug(
                 cfg,
                 "pending independent send skipped; image file missing: %s",
@@ -793,6 +829,7 @@ class RetrievalMixin:
                 source="proactive_emoji",
             )
         except Exception as exc:
+            self._pending_image_inject_contexts.pop(event.unified_msg_origin, None)
             self._log_proactive_emoji_error_debug(
                 cfg,
                 "pending independent send failed; error=%s",
@@ -823,7 +860,9 @@ class RetrievalMixin:
         recent = set(getattr(self, "_recent_proactive_emoji_rel_paths", []) or [])
         if not recent:
             return candidates
-        filtered = [item for item in candidates if str(item.get("rel_path") or "") not in recent]
+        filtered = [
+            item for item in candidates if str(item.get("rel_path") or "") not in recent
+        ]
         return filtered or candidates
 
     def _remember_recent_proactive_emoji(self, image_item: dict[str, Any]) -> None:
@@ -989,11 +1028,15 @@ class RetrievalMixin:
         if source_kind == PROACTIVE_EMOJI_SOURCE_USER_MESSAGE:
             analysis_target = "用户刚刚发送的消息"
             source_label = "用户发言"
-            matched_rule = "只有当图库中确实有图片适合回应这条用户发言时 matched 才为 true。"
+            matched_rule = (
+                "只有当图库中确实有图片适合回应这条用户发言时 matched 才为 true。"
+            )
         else:
             analysis_target = "bot 即将发送的 LLM 回复"
             source_label = "bot 的 LLM 回复"
-            matched_rule = "只有当图库中确实有图片适合追加到这条回复后面时 matched 才为 true。"
+            matched_rule = (
+                "只有当图库中确实有图片适合追加到这条回复后面时 matched 才为 true。"
+            )
         return (
             "请在一次请求中完成两件事：\n"
             f"1. 分析 {analysis_target} 的语义、情绪、语气和适合追加的表情包氛围；\n"
@@ -1004,9 +1047,9 @@ class RetrievalMixin:
             "图库候选：\n"
             f"{json.dumps(compact_candidates, ensure_ascii=False)}\n\n"
             "输出严格 JSON，格式如下：\n"
-            "{\"matched\": true/false, \"image_ids\": [\"候选 id\"], \"image_id\": \"兼容字段，可填首个候选 id 或空字符串\", "
-            "\"need\": \"适合的表情包语境摘要\", \"reason\": \"简短理由\", "
-            "\"confidence\": 0.0}\n"
+            '{"matched": true/false, "image_ids": ["候选 id"], "image_id": "兼容字段，可填首个候选 id 或空字符串", '
+            '"need": "适合的表情包语境摘要", "reason": "简短理由", '
+            '"confidence": 0.0}\n'
             f"{matched_rule}"
         )
 
@@ -1017,7 +1060,9 @@ class RetrievalMixin:
         cfg: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         if not decision.get("matched"):
-            self._log_proactive_emoji_debug(cfg, "selection stopped; LLM decision unmatched.")
+            self._log_proactive_emoji_debug(
+                cfg, "selection stopped; LLM decision unmatched."
+            )
             return None
         if self._to_float(decision.get("confidence"), 0.0) < 0.35:
             self._log_proactive_emoji_debug(
@@ -1067,7 +1112,9 @@ class RetrievalMixin:
             )
 
         category_labels = self._caption_category_labels()
-        category_text = "、".join(category_labels) if category_labels else "基础图像内容"
+        category_text = (
+            "、".join(category_labels) if category_labels else "基础图像内容"
+        )
         category_rules = self._caption_category_prompt_rules()
         prepared_image_path, cleanup_paths = await self._prepare_caption_image_input(
             image_path
@@ -1079,7 +1126,7 @@ class RetrievalMixin:
             "规则：\n"
             f"{category_rules}\n"
             "不要生成露骨、色情、未成年人性化或隐私推断类标签。\n"
-            "只输出 JSON 数组字符串，例如 [\"照片\", \"黑发\", \"微笑\", \"身材匀称\", \"今天也要开心\"]。"
+            '只输出 JSON 数组字符串，例如 ["照片", "黑发", "微笑", "身材匀称", "今天也要开心"]。'
             "不要输出解释，不要输出 Markdown。"
         )
         try:
@@ -1176,8 +1223,7 @@ class RetrievalMixin:
                 score += 5.0
                 hints.append(f"name-tag:{term}")
             elif any(
-                tag in {"人物", "角色", "人名", "姓名", "昵称", "称呼"}
-                for tag in tags
+                tag in {"人物", "角色", "人名", "姓名", "昵称", "称呼"} for tag in tags
             ):
                 score += 1.5
                 hints.append("name-related-tag")
@@ -1252,9 +1298,9 @@ class RetrievalMixin:
             "候选图片（已按本地轻量规则预排，只需在这些图里选）：\n"
             f"{json.dumps(compact_candidates, ensure_ascii=False)}\n\n"
             "输出严格 JSON，格式如下：\n"
-            "{\"matched\": true/false, \"image_ids\": [\"候选id\"], "
-            "\"image_id\": \"image_ids 中的首个候选id\", "
-            "\"need\": \"用户需求摘要\", \"reason\": \"简短理由\", \"confidence\": 0.0}\n"
+            '{"matched": true/false, "image_ids": ["候选id"], '
+            '"image_id": "image_ids 中的首个候选id", '
+            '"need": "用户需求摘要", "reason": "简短理由", "confidence": 0.0}\n'
         )
 
     def _parse_decision(self, text: str) -> dict[str, Any]:
@@ -1298,7 +1344,9 @@ class RetrievalMixin:
         ]
         return random.choice(matched_items) if matched_items else None
 
-    def _fallback_match(self, candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
+    def _fallback_match(
+        self, candidates: list[dict[str, Any]]
+    ) -> dict[str, Any] | None:
         scored_items = [
             item
             for item in candidates
@@ -1307,8 +1355,7 @@ class RetrievalMixin:
         if not scored_items:
             return None
         top_score = max(
-            self._to_float(item.get("search_score"), 0.0)
-            for item in scored_items
+            self._to_float(item.get("search_score"), 0.0) for item in scored_items
         )
         pool = [
             item
@@ -1318,7 +1365,9 @@ class RetrievalMixin:
         ][:SEARCH_SELECTION_POOL_SIZE]
         return random.choice(pool) if pool else None
 
-    def _render_custom_reply(self, item: dict[str, Any], decision: dict[str, Any]) -> str:
+    def _render_custom_reply(
+        self, item: dict[str, Any], decision: dict[str, Any]
+    ) -> str:
         template = self._cfg_str("custom_reply")
         values = {
             "filename": item.get("filename", ""),
@@ -1441,7 +1490,9 @@ class RetrievalMixin:
             return provider_id
         raw = self.config.get(TAG_CATEGORY_CONFIG_KEY, {})
         if isinstance(raw, dict) and DEFAULT_CAPTION_PROVIDER_CONFIG_KEY in raw:
-            provider_id = str(raw.get(DEFAULT_CAPTION_PROVIDER_CONFIG_KEY) or "").strip()
+            provider_id = str(
+                raw.get(DEFAULT_CAPTION_PROVIDER_CONFIG_KEY) or ""
+            ).strip()
             if provider_id and provider_id in provider_ids:
                 return provider_id
         provider_id = self._system_default_image_caption_provider_id()
@@ -1473,7 +1524,10 @@ class RetrievalMixin:
             provider_settings = {}
             cfg["provider_settings"] = provider_settings
         provider_id = str(provider_id or "").strip()
-        if str(provider_settings.get("default_image_caption_provider_id") or "") == provider_id:
+        if (
+            str(provider_settings.get("default_image_caption_provider_id") or "")
+            == provider_id
+        ):
             return
         provider_settings["default_image_caption_provider_id"] = provider_id
         save_config = getattr(cfg, "save_config", None)
@@ -1492,4 +1546,3 @@ class RetrievalMixin:
         if provider_id:
             self._set_system_default_image_caption_provider_id(provider_id)
         return provider_id
-

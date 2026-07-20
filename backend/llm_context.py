@@ -1,15 +1,16 @@
 import copy
+import hashlib
 import inspect
 import json
+import re
 
 from .common import (
-    AstrMessageEvent,
     MODEL_FALLBACK_CONFIG_KEY,
+    AstrMessageEvent,
     asyncio,
     logger,
     time,
 )
-
 
 MODEL_FALLBACK_MODE_INHERIT = "inherit"
 MODEL_FALLBACK_MODE_MANUAL = "manual"
@@ -52,104 +53,282 @@ class LLMContextMixin:
         cid = await conv_mgr.new_conversation(umo, platform_id)
         return await conv_mgr.get_conversation(umo, cid)
 
-    async def _inject_sent_image_to_history(self, event: AstrMessageEvent) -> None:
-        """Append a short assistant message to conversation history after sending an image.
+    @staticmethod
+    def _parse_conversation_history(raw_history) -> list[dict]:
+        if isinstance(raw_history, list):
+            return list(raw_history)
+        if not isinstance(raw_history, str) or not raw_history:
+            return []
+        try:
+            parsed = json.loads(raw_history)
+        except Exception:
+            return []
+        return list(parsed) if isinstance(parsed, list) else []
 
-        This lets the LLM know what meme/image it just sent, without touching
-        the system-prompt layer (persona, external injections) or breaking any
-        prompt cache.
-        """
-        pending = self._pending_image_inject_contexts.pop(
-            event.unified_msg_origin, None
+    @staticmethod
+    def _text_from_content_part(part) -> str:
+        if isinstance(part, dict):
+            if part.get("type") != "text":
+                return ""
+            return str(part.get("text") or "")
+        if getattr(part, "type", None) != "text":
+            return ""
+        return str(getattr(part, "text", "") or "")
+
+    @classmethod
+    def _assistant_visible_text(cls, content) -> str:
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            return "".join(cls._text_from_content_part(part) for part in content)
+        return ""
+
+    @staticmethod
+    def _without_sent_image_marker(content: str) -> str:
+        return str(content or "").split("[本轮主动发送了一张表情包", 1)[0].rstrip()
+
+    @classmethod
+    def _normalize_assistant_text(cls, content) -> str:
+        visible_text = cls._assistant_visible_text(content)
+        return re.sub(r"\s+", "", visible_text).strip()
+
+    @classmethod
+    def _assistant_text_fingerprint(cls, content) -> str:
+        normalized = cls._normalize_assistant_text(content)
+        if not normalized:
+            return ""
+        return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:20]
+
+    @staticmethod
+    def _sent_image_context_content(pending: dict) -> str:
+        raw_tags = pending.get("tags") or []
+        tags = raw_tags if isinstance(raw_tags, list) else []
+        tags = [str(tag).strip() for tag in tags if str(tag).strip()]
+        tag_text = "、".join(tags)
+        if tag_text:
+            return f"[本轮主动发送了一张表情包，特征标签：{tag_text}]"
+        return "[本轮主动发送了一张表情包]"
+
+    @classmethod
+    def _find_target_assistant_index(
+        cls,
+        history: list,
+        pending: dict,
+    ) -> int | None:
+        target_fingerprint = str(pending.get("assistant_fingerprint") or "")
+        target_text = cls._normalize_assistant_text(
+            str(pending.get("assistant_text") or "")
         )
-        if not isinstance(pending, dict):
+        for index in range(len(history) - 1, -1, -1):
+            record = history[index]
+            if not isinstance(record, dict) or record.get("role") != "assistant":
+                continue
+            visible_text = cls._without_sent_image_marker(
+                cls._assistant_visible_text(record.get("content"))
+            )
+            if not visible_text:
+                continue
+            if target_fingerprint and (
+                cls._assistant_text_fingerprint(visible_text) == target_fingerprint
+            ):
+                return index
+            normalized_content = cls._normalize_assistant_text(visible_text)
+            if target_text and (
+                normalized_content == target_text
+                or normalized_content.endswith(target_text)
+                or target_text.endswith(normalized_content)
+            ):
+                return index
+        return None
+
+    @classmethod
+    def _assistant_match_diagnostics(cls, history: list, pending: dict) -> str:
+        target_text = cls._without_sent_image_marker(
+            cls._assistant_visible_text(pending.get("assistant_text"))
+        )
+        candidates = []
+        for record in reversed(history):
+            if not isinstance(record, dict) or record.get("role") != "assistant":
+                continue
+            raw_content = record.get("content")
+            visible_text = cls._without_sent_image_marker(
+                cls._assistant_visible_text(raw_content)
+            )
+            candidates.append(
+                {
+                    "type": type(raw_content).__name__,
+                    "fingerprint": cls._assistant_text_fingerprint(visible_text),
+                    "text": visible_text[:80],
+                }
+            )
+            if len(candidates) >= 3:
+                break
+        return repr(
+            {
+                "target_text": target_text[:80],
+                "recent_assistants": candidates,
+            }
+        )
+
+    @classmethod
+    def _append_sent_image_context(cls, record: dict, annotation: str) -> bool:
+        content = record.get("content")
+        if annotation in cls._assistant_visible_text(content):
+            return False
+        if isinstance(content, str):
+            separator = "\n" if content else ""
+            record["content"] = f"{content}{separator}{annotation}"
+            return True
+        if isinstance(content, list):
+            prefix = "\n" if cls._assistant_visible_text(content) else ""
+            content.append({"type": "text", "text": f"{prefix}{annotation}"})
+            return True
+        return False
+
+    @classmethod
+    def _merge_sent_image_context(cls, history: list, pending: dict) -> str:
+        annotation = cls._sent_image_context_content(pending)
+        assistant_index = cls._find_target_assistant_index(history, pending)
+        if assistant_index is None:
+            return "target_missing"
+        if cls._append_sent_image_context(history[assistant_index], annotation):
+            return "merged"
+        if annotation in cls._assistant_visible_text(
+            history[assistant_index].get("content")
+        ):
+            return "already_present"
+        return "unsupported_content"
+
+    async def _inject_sent_image_to_history(self, event: AstrMessageEvent) -> None:
+        """Merge the sent-image fact and retain it until request-side confirmation."""
+        umo = event.unified_msg_origin
+        pending = self._pending_image_inject_contexts.pop(umo, None)
+        if not isinstance(pending, dict) or pending.get("source") != "proactive_emoji":
             return
 
         proactive_cfg = self.config.get("proactive_emoji_reply", {})
         if not isinstance(proactive_cfg, dict):
             proactive_cfg = {}
         if not proactive_cfg.get("context_injection_enabled", True):
+            self._pending_image_context_confirmations.pop(umo, None)
             return
-
-        tags: list[str] = pending.get("tags") or []
-        if not isinstance(tags, list):
-            tags = []
-        tags = [str(t).strip() for t in tags if str(t).strip()]
-
-        tag_text = "、".join(tags) if tags else ""
-
-        # Build the injection text.  An optional bot_name makes it explicit
-        # that the *AI* sent the image (e.g. "小怡刚才发送了一张表情包").
-        # Without it we fall back to a system-hint phrasing so the LLM cannot
-        # mistake the image as having been sent by the user.
-        bot_name = str(proactive_cfg.get("context_injection_bot_name") or "").strip()
-        if bot_name:
-            content = (
-                f"[{bot_name}刚才发送了一张表情包，特征标签：{tag_text}]"
-                if tag_text
-                else f"[{bot_name}刚才发送了一张表情包]"
-            )
-        else:
-            content = (
-                f"[系统提示：你刚才主动发送了一张表情包，特征标签：{tag_text}]"
-                if tag_text
-                else "[系统提示：你刚才主动发送了一张表情包]"
-            )
 
         try:
             conv_mgr = getattr(self.context, "conversation_manager", None)
             if conv_mgr is None:
                 return
-            umo = event.unified_msg_origin
             cid = await conv_mgr.get_curr_conversation_id(umo)
             if not cid:
                 return
+            pending["conversation_id"] = cid
+            self._pending_image_context_confirmations[umo] = pending
             conversation = await conv_mgr.get_conversation(umo, cid)
             if conversation is None:
                 return
-
-            raw_history = getattr(conversation, "history", None)
-            if isinstance(raw_history, list):
-                history: list = list(raw_history)
-            elif isinstance(raw_history, str) and raw_history:
-                try:
-                    parsed = json.loads(raw_history)
-                    history = list(parsed) if isinstance(parsed, list) else []
-                except Exception:
-                    history = []
-            else:
-                history = []
-
-            # Insert just before the last user message so that the injected
-            # assistant turn forms a valid assistant→user pair. Compact keeps
-            # the last user message, so it will carry this entry along.
-            insert_idx = len(history)
-            for i in range(len(history) - 1, -1, -1):
-                if isinstance(history[i], dict) and history[i].get("role") == "user":
-                    insert_idx = i
-                    break
-            history.insert(insert_idx, {"role": "assistant", "content": content})
-            await conv_mgr.update_conversation(
-                unified_msg_origin=umo,
-                conversation_id=cid,
-                history=history,
+            history = self._parse_conversation_history(
+                getattr(conversation, "history", None)
             )
+            merge_status = self._merge_sent_image_context(history, pending)
+            if merge_status == "target_missing":
+                logger.warning(
+                    "astrbot_plugin_smart_imagechat_hub: [inject] target assistant "
+                    "not found; fingerprint=%s diagnostics=%s",
+                    pending.get("assistant_fingerprint", ""),
+                    self._assistant_match_diagnostics(history, pending),
+                )
+                return
+            if merge_status == "unsupported_content":
+                logger.warning(
+                    "astrbot_plugin_smart_imagechat_hub: [inject] target assistant "
+                    "uses unsupported content; diagnostics=%s",
+                    self._assistant_match_diagnostics(history, pending),
+                )
+                return
+            if merge_status == "merged":
+                await conv_mgr.update_conversation(
+                    unified_msg_origin=umo,
+                    conversation_id=cid,
+                    history=history,
+                )
+
+            persisted = await conv_mgr.get_conversation(umo, cid)
+            persisted_history = self._parse_conversation_history(
+                getattr(persisted, "history", None) if persisted else None
+            )
+            verify_status = self._merge_sent_image_context(persisted_history, pending)
+            if verify_status != "already_present":
+                logger.warning(
+                    "astrbot_plugin_smart_imagechat_hub: [inject] write-back "
+                    "verification failed; status=%s",
+                    verify_status,
+                )
+                return
+
             logger.info(
-                "astrbot_plugin_smart_imagechat_hub: [inject] done; history_len=%d content=%r",
-                len(history),
-                content,
+                "astrbot_plugin_smart_imagechat_hub: [inject] persisted in target "
+                "assistant; history_len=%d content=%r",
+                len(persisted_history),
+                self._sent_image_context_content(pending),
             )
-            # Also store for on_llm_request so the text is appended to
-            # extra_user_content_parts after compact, guaranteeing LLM sees it.
-            sent_map = getattr(self, "_sent_image_for_next_req", None)
-            if isinstance(sent_map, dict):
-                sent_map[umo] = content
         except Exception as exc:
             logger.warning(
                 "astrbot_plugin_smart_imagechat_hub: failed to inject sent-image "
                 "context into history: %s",
                 str(exc) or type(exc).__name__,
             )
+
+    async def _reconcile_sent_image_request_context(self, event, req) -> None:
+        """Ensure the provider request contains the previous assistant annotation."""
+        umo = event.unified_msg_origin
+        proactive_cfg = self.config.get("proactive_emoji_reply", {})
+        if not isinstance(proactive_cfg, dict):
+            proactive_cfg = {}
+        if not proactive_cfg.get("context_injection_enabled", True):
+            self._pending_image_context_confirmations.pop(umo, None)
+            return
+
+        pending = self._pending_image_context_confirmations.get(umo)
+        if not isinstance(pending, dict):
+            return
+        conversation = getattr(req, "conversation", None)
+        conversation_id = str(getattr(conversation, "cid", "") or "")
+        target_conversation_id = str(pending.get("conversation_id") or "")
+        if target_conversation_id and conversation_id != target_conversation_id:
+            logger.warning(
+                "astrbot_plugin_smart_imagechat_hub: [inject] skipped request "
+                "reconcile due to conversation switch"
+            )
+            self._pending_image_context_confirmations.pop(umo, None)
+            return
+
+        contexts = getattr(req, "contexts", None)
+        if not isinstance(contexts, list):
+            return
+        status = self._merge_sent_image_context(contexts, pending)
+        if status == "target_missing":
+            logger.warning(
+                "astrbot_plugin_smart_imagechat_hub: [inject] target assistant "
+                "missing from provider request; fingerprint=%s diagnostics=%s",
+                pending.get("assistant_fingerprint", ""),
+                self._assistant_match_diagnostics(contexts, pending),
+            )
+            return
+        if status == "unsupported_content":
+            logger.warning(
+                "astrbot_plugin_smart_imagechat_hub: [inject] provider request "
+                "assistant uses unsupported content; diagnostics=%s",
+                self._assistant_match_diagnostics(contexts, pending),
+            )
+            return
+
+        self._pending_image_context_confirmations.pop(umo, None)
+        logger.info(
+            "astrbot_plugin_smart_imagechat_hub: [inject] provider request "
+            "assistant context %s; context_len=%d content=%r",
+            "confirmed" if status == "already_present" else "repaired",
+            len(contexts),
+            self._sent_image_context_content(pending),
+        )
 
     def _normalize_model_fallback_config(self, raw) -> dict:
         raw = raw if isinstance(raw, dict) else {}
@@ -276,7 +455,9 @@ class LLMContextMixin:
         if not isinstance(failure_until, dict):
             self._model_provider_failure_until = {}
             failure_until = self._model_provider_failure_until
-        failure_until[provider_id] = time.time() + MODEL_PROVIDER_FAILURE_COOLDOWN_SECONDS
+        failure_until[provider_id] = (
+            time.time() + MODEL_PROVIDER_FAILURE_COOLDOWN_SECONDS
+        )
 
     async def _run_image_caption_provider_request(self, call_factory):
         lock = getattr(self, "_caption_provider_call_lock", None)
@@ -286,7 +467,9 @@ class LLMContextMixin:
 
         async with lock:
             try:
-                last_call_at = float(getattr(self, "_last_caption_provider_call_at", 0.0))
+                last_call_at = float(
+                    getattr(self, "_last_caption_provider_call_at", 0.0)
+                )
             except (TypeError, ValueError):
                 last_call_at = 0.0
             wait_seconds = IMAGE_CAPTION_PROVIDER_MIN_INTERVAL_SECONDS - (
@@ -516,11 +699,13 @@ class LLMContextMixin:
             await semaphore.acquire()
             try:
                 try:
-                    lane, lane_key, closeable_client = (
-                        await self._acquire_openai_compatible_provider_lane(
-                            provider_id,
-                            provider,
-                        )
+                    (
+                        lane,
+                        lane_key,
+                        closeable_client,
+                    ) = await self._acquire_openai_compatible_provider_lane(
+                        provider_id,
+                        provider,
                     )
                 except Exception as exc:
                     logger.debug(
@@ -702,7 +887,9 @@ class LLMContextMixin:
                 completion_text = str(getattr(resp, "completion_text", "") or "")
                 error_text = completion_text.lower()
                 if "[erro]" in error_text or "internal server error" in error_text:
-                    raise RuntimeError(completion_text[:500] or "provider returned error")
+                    raise RuntimeError(
+                        completion_text[:500] or "provider returned error"
+                    )
                 return resp
             except asyncio.CancelledError:
                 raise
@@ -719,7 +906,8 @@ class LLMContextMixin:
         last_error = (
             f"{type(last_exc).__name__}: {last_exc}"
             if last_exc and str(last_exc)
-            else type(last_exc).__name__ if last_exc else "unknown error"
+            else type(last_exc).__name__
+            if last_exc
+            else "unknown error"
         )
         raise RuntimeError(f"All providers failed for {operation_name}: {last_error}")
-

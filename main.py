@@ -20,19 +20,19 @@ from .backend import (
 from .backend.common import (
     AUTO_COLLECTION_DISCARDED_FILENAME,
     AUTO_COLLECTION_POOL_FILENAME,
+    EXTERNAL_IMPORT_STATE_FILENAME,
+    IMAGEBED_IMPORT_DISCARDED_FILENAME,
+    IMAGEBED_IMPORT_STATE_FILENAME,
+    PLUGIN_NAME,
+    PLUGIN_VERSION,
+    SKIP_PROACTIVE_EMOJI_EXTRA_KEY,
     Any,
     AstrBotConfig,
     AstrMessageEvent,
     AutoImageCollectionMessageFilter,
     Image,
     MemeCombatMessageFilter,
-    EXTERNAL_IMPORT_STATE_FILENAME,
-    IMAGEBED_IMPORT_DISCARDED_FILENAME,
-    IMAGEBED_IMPORT_STATE_FILENAME,
-    PLUGIN_NAME,
-    PLUGIN_VERSION,
     Plain,
-    SKIP_PROACTIVE_EMOJI_EXTRA_KEY,
     TextPart,
     WakeImageRequestFilter,
     _is_explicit_user_search_wake,
@@ -40,6 +40,7 @@ from .backend.common import (
     clear_auto_collection_plugin,
     set_auto_collection_plugin,
 )
+
 
 @register(
     PLUGIN_NAME,
@@ -75,12 +76,11 @@ class SmartImageSenderPlugin(
         )
         self.external_import_state_path = self.data_dir / EXTERNAL_IMPORT_STATE_FILENAME
         self.imagebed_import_state_path = self.data_dir / IMAGEBED_IMPORT_STATE_FILENAME
-        self.imagebed_discarded_path = self.data_dir / IMAGEBED_IMPORT_DISCARDED_FILENAME
+        self.imagebed_discarded_path = (
+            self.data_dir / IMAGEBED_IMPORT_DISCARDED_FILENAME
+        )
         self._pending_image_inject_contexts: dict[str, dict] = {}
-        # Populated after an image is sent; consumed in the *next* on_llm_request
-        # to inject the tag text directly into req.extra_user_content_parts,
-        # bypassing compact so the LLM always sees it.
-        self._sent_image_for_next_req: dict[str, str] = {}
+        self._pending_image_context_confirmations: dict[str, dict] = {}
         self._recent_proactive_emoji_rel_paths: list[str] = []
         self._lock = asyncio.Lock()
         self._caption_provider_call_lock = asyncio.Lock()
@@ -135,7 +135,10 @@ class SmartImageSenderPlugin(
         self._start_auto_collection_worker()
 
     async def terminate(self) -> None:
-        if self._auto_collection_worker_task and not self._auto_collection_worker_task.done():
+        if (
+            self._auto_collection_worker_task
+            and not self._auto_collection_worker_task.done()
+        ):
             self._auto_collection_worker_task.cancel()
             try:
                 await self._auto_collection_worker_task
@@ -300,10 +303,6 @@ class SmartImageSenderPlugin(
         finally:
             self._cleanup_temp_paths(cleanup_paths)
 
-        self._pending_image_inject_contexts[event.unified_msg_origin] = {
-            "tags": image_tags,
-            "filename": image_item.get("filename", ""),
-        }
         event.stop_event()
 
     @filter.on_decorating_result(priority=20)
@@ -312,13 +311,7 @@ class SmartImageSenderPlugin(
 
     @filter.on_llm_request(priority=20)
     async def on_llm_request(self, event: AstrMessageEvent, req):
-        # Inject the last sent image tags directly into the current user message
-        # so they survive compact and are always visible to the LLM.
-        sent_tag_text = self._sent_image_for_next_req.pop(
-            event.unified_msg_origin, None
-        )
-        if sent_tag_text:
-            req.extra_user_content_parts.append(TextPart(text=sent_tag_text))
+        await self._reconcile_sent_image_request_context(event, req)
         await self._start_parallel_proactive_emoji(
             event,
             event.get_message_str() or "",
@@ -357,4 +350,3 @@ class SmartImageSenderPlugin(
             f"智能图库同步完成：{before} -> {after} 张。图片特征标签会在后台生成。"
         )
         event.stop_event()
-

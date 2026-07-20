@@ -258,9 +258,6 @@ const els = {
   proactiveEmojiContextInjectionInput: document.getElementById(
     "proactiveEmojiContextInjectionInput",
   ),
-  proactiveEmojiBotNameInput: document.getElementById(
-    "proactiveEmojiBotNameInput",
-  ),
   proactiveEmojiMessage: document.getElementById("proactiveEmojiMessage"),
   proactiveEmojiSaveButton: document.getElementById("proactiveEmojiSaveButton"),
   proactiveEmojiCancelButton: document.getElementById(
@@ -4374,8 +4371,6 @@ function fillProactiveEmojiDialog(config) {
   els.proactiveEmojiDebugModeInput.checked = config.debug_mode === true;
   els.proactiveEmojiContextInjectionInput.checked =
     config.context_injection_enabled !== false;
-  els.proactiveEmojiBotNameInput.value =
-    config.context_injection_bot_name || "";
   els.proactiveEmojiRetrievalModeInput.value = proactiveEmojiRetrievalModes.has(
     config.retrieval_mode,
   )
@@ -4645,7 +4640,6 @@ function readProactiveEmojiDialog() {
     ),
     debug_mode: els.proactiveEmojiDebugModeInput.checked,
     context_injection_enabled: els.proactiveEmojiContextInjectionInput.checked,
-    context_injection_bot_name: els.proactiveEmojiBotNameInput.value.trim(),
   };
 }
 
