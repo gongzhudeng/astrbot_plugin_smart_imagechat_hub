@@ -11,6 +11,9 @@ const els = {
   updatedAt: document.getElementById("updatedAt"),
   messageText: document.getElementById("messageText"),
   completeHint: document.getElementById("completeHint"),
+  themeToggleButton: document.getElementById("themeToggleButton"),
+  themeToggleIcon: document.getElementById("themeToggleIcon"),
+  themeToggleLabel: document.getElementById("themeToggleLabel"),
   refreshButton: document.getElementById("refreshButton"),
   openUploadButton: document.getElementById("openUploadButton"),
   libraryManageButton: document.getElementById("libraryManageButton"),
@@ -489,10 +492,11 @@ const els = {
 };
 
 const pluginApiBase = "/api/plug/astrbot_plugin_smart_imagechat_hub";
-const PLUGIN_VERSION = "v2.8.6";
+const PLUGIN_VERSION = "v2.10.2";
 let bridge = window.AstrBotPluginPage || null;
 let bridgeReady = false;
 let bridgeUnavailable = false;
+let manualTheme = null;
 let libraryImages = [];
 let solidifiedLibraryImages = [];
 let externalLibraryImages = [];
@@ -963,6 +967,28 @@ function withTimeout(promise, timeoutMs) {
   });
 }
 
+function applyTheme(theme) {
+  const resolved = theme === "dark" ? "dark" : "light";
+  document.documentElement.dataset.theme = resolved;
+  els.themeToggleIcon.textContent = resolved === "dark" ? "☀" : "◐";
+  els.themeToggleLabel.textContent = resolved === "dark" ? "浅色" : "深色";
+  const targetTheme = resolved === "dark" ? "浅色" : "深色";
+  els.themeToggleButton.setAttribute("aria-label", `切换${targetTheme}主题`);
+  els.themeToggleButton.title = `切换${targetTheme}主题`;
+}
+
+function toggleTheme() {
+  manualTheme =
+    document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  applyTheme(manualTheme);
+}
+
+function syncThemeFromContext(context) {
+  if (!manualTheme && typeof context?.isDark === "boolean") {
+    applyTheme(context.isDark ? "dark" : "light");
+  }
+}
+
 async function ensureBridgeReady() {
   if (bridgeUnavailable) {
     throw new Error("AstrBot Plugin Page Bridge 不可用");
@@ -976,7 +1002,9 @@ async function ensureBridgeReady() {
     return bridge;
   }
   try {
-    await withTimeout(bridge.ready(), 5000);
+    const context = await withTimeout(bridge.ready(), 5000);
+    syncThemeFromContext(context);
+    bridge.onContext?.(syncThemeFromContext);
   } catch (error) {
     bridgeUnavailable = true;
     throw error;
@@ -5576,6 +5604,7 @@ async function uploadImages() {
   }
 }
 
+els.themeToggleButton.addEventListener("click", toggleTheme);
 els.refreshButton.addEventListener("click", refreshAll);
 els.openUploadButton.addEventListener("click", openUploadDialogWithProviderCheck);
 els.libraryManageButton.addEventListener("click", scrollToLibraryScopeSwitch);

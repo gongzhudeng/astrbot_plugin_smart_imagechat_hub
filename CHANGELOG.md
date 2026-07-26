@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## v2.10.2
+
+### Added
+
+- Added a light/dark theme toggle to the image center WebUI.
+- Added automatic synchronization with the AstrBot Dashboard theme.
+
+### Changed
+
+- Updated the WebUI backup version marker to match the plugin release version.
+
 ## v2.9.0
 
 ### Added
