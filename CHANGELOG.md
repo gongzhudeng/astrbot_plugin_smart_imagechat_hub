@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## v2.11.1
+
+### Fixed
+
+- Fixed deferred proactive emoji sends cancelling themselves when AstrBot emits the image message callback after `event.send()` returns.
+- Deferred jobs now accept the already-validated base reply send without rechecking a mutable event result, preserving compatibility with plugins that transform outgoing replies.
+
 ## v2.11.0
 
 ### Added

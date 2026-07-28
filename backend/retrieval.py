@@ -369,6 +369,7 @@ class RetrievalMixin:
         cfg: dict[str, Any],
         *,
         assistant_text: str = "",
+        base_result_ready: bool = False,
     ) -> None:
         umo = str(event.unified_msg_origin or "")
         if not umo:
@@ -386,6 +387,7 @@ class RetrievalMixin:
             "event": event,
             "cfg": cfg,
             "assistant_text": str(assistant_text or "").strip(),
+            "base_result_ready": bool(base_result_ready),
             "message_sent": asyncio.Event(),
             "image_sending": False,
             "task": None,
@@ -455,16 +457,24 @@ class RetrievalMixin:
         if not isinstance(job, dict) or job.get("event") is not event:
             return
         if job.get("image_sending", False):
-            return
-        result = event.get_result()
-        if not isinstance(result, MessageEventResult) or not result.is_llm_result():
-            self._cancel_deferred_proactive_emoji_job(
-                umo,
-                reason="base result was not an LLM reply",
+            self._log_proactive_emoji_debug(
+                job.get("cfg"),
+                "ignored after_message_sent callback from deferred image send.",
             )
             return
-        job["assistant_text"] = result.get_plain_text().strip()
+        if job["message_sent"].is_set():
+            return
+        if not job.get("base_result_ready", False):
+            self._log_proactive_emoji_debug(
+                job.get("cfg"),
+                "ignored after_message_sent callback before base LLM result was ready.",
+            )
+            return
         job["message_sent"].set()
+        self._log_proactive_emoji_debug(
+            job.get("cfg"),
+            "base message sent; deferred image send released.",
+        )
 
     async def _send_deferred_proactive_emoji_image(
         self,
@@ -494,7 +504,6 @@ class RetrievalMixin:
         try:
             job["image_sending"] = True
             await event.send(MessageEventResult().file_image(str(send_image_path)))
-            job["image_sending"] = False
             finish_task = asyncio.create_task(
                 self._finish_deferred_proactive_emoji_send(
                     job,
@@ -600,6 +609,7 @@ class RetrievalMixin:
         )
         if isinstance(current_job, dict) and current_job.get("event") is event:
             current_job["assistant_text"] = reply_text
+            current_job["base_result_ready"] = True
             return
         if cfg.get("retrieval_mode") in {
             "user_message_parallel",
@@ -620,6 +630,7 @@ class RetrievalMixin:
             self._run_serial_proactive_emoji_decision(event, reply_text, cfg),
             cfg,
             assistant_text=reply_text,
+            base_result_ready=True,
         )
 
     async def _maybe_append_proactive_emoji(self, event: AstrMessageEvent) -> None:
