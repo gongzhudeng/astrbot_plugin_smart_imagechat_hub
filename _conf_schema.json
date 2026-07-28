@@ -212,6 +212,12 @@
         "default": true,
         "hint": "开启后，表情包和对话在同一次对话中一起发送；关闭后，对话遵循原先的 LLM 普通对话发送流程，表情包会以非 LLM 输出格式独立发送。关闭此选项可避免与其他插件产生兼容性冲突。"
       },
+      "deferred_append_enabled": {
+        "description": "先发送文字，再追加表情包",
+        "type": "bool",
+        "default": false,
+        "hint": "开启后，主对话文字会立即发送，不等待表情包选择；表情包选择完成后会作为独立消息追加。开启时，“表情包嵌入在对话中发送”设置不生效。"
+      },
       "trigger_probability": {
         "description": "主动回复表情包概率",
         "type": "string",

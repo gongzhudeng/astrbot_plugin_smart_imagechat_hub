@@ -930,6 +930,9 @@ class CaptionLibraryMixin:
             "retrieval_mode": retrieval_mode,
             "analysis_timeout_seconds": analysis_timeout_seconds,
             "meme_only": self._to_bool(raw.get("meme_only"), True),
+            "deferred_append_enabled": self._to_bool(
+                raw.get("deferred_append_enabled"), False
+            ),
             "embed_in_conversation": self._to_bool(
                 raw.get("embed_in_conversation"),
                 True,

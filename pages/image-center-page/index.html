@@ -650,6 +650,19 @@
 
             <div class="config-item">
               <div class="config-item-copy">
+                <label for="proactiveEmojiDeferredAppendInput">先发送文字，再追加表情包</label>
+                <p>开启后，主对话文字会立即发送，不等待表情包选择；表情包选择完成后会作为独立消息追加。开启时，“表情包嵌入在对话中发送”设置不生效。</p>
+              </div>
+              <div class="config-item-control">
+                <label class="switch-option">
+                  <input id="proactiveEmojiDeferredAppendInput" type="checkbox" />
+                  <span> </span>
+                </label>
+              </div>
+            </div>
+
+            <div class="config-item">
+              <div class="config-item-copy">
                 <label for="proactiveEmojiProbabilityInput">主动回复表情包概率</label>
                 <p>取值范围 0-1。只有普通 LLM 回复概率命中时，才启动语义和情感分析 + 表情包选择流程。</p>
               </div>

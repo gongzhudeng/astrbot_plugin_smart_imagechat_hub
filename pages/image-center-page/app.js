@@ -249,6 +249,9 @@ const els = {
   proactiveEmojiEmbedInput: document.getElementById(
     "proactiveEmojiEmbedInput",
   ),
+  proactiveEmojiDeferredAppendInput: document.getElementById(
+    "proactiveEmojiDeferredAppendInput",
+  ),
   proactiveEmojiProbabilityInput: document.getElementById(
     "proactiveEmojiProbabilityInput",
   ),
@@ -492,7 +495,7 @@ const els = {
 };
 
 const pluginApiBase = "/api/plug/astrbot_plugin_smart_imagechat_hub";
-const PLUGIN_VERSION = "v2.10.2";
+const PLUGIN_VERSION = "v2.11.0";
 let bridge = window.AstrBotPluginPage || null;
 let bridgeReady = false;
 let bridgeUnavailable = false;
@@ -4390,6 +4393,8 @@ function fillProactiveEmojiDialog(config) {
   els.proactiveEmojiEnabledInput.checked = config.enabled === true;
   els.proactiveEmojiMemeOnlyInput.checked = config.meme_only !== false;
   els.proactiveEmojiEmbedInput.checked = config.embed_in_conversation !== false;
+  els.proactiveEmojiDeferredAppendInput.checked =
+    config.deferred_append_enabled === true;
   els.proactiveEmojiProbabilityInput.value = String(
     config.trigger_probability ?? "0.25",
   );
@@ -4409,6 +4414,12 @@ function fillProactiveEmojiDialog(config) {
     config.analysis_provider_id || "",
   );
   renderProactiveEmojiRetrievalModeWarning();
+  updateProactiveEmojiDeliveryControls();
+}
+
+function updateProactiveEmojiDeliveryControls() {
+  els.proactiveEmojiEmbedInput.disabled =
+    els.proactiveEmojiDeferredAppendInput.checked;
 }
 
 function renderProactiveEmojiProviderOptions(options, selectedId) {
@@ -4657,6 +4668,7 @@ function readProactiveEmojiDialog() {
       : "bot_reply_serial",
     meme_only: els.proactiveEmojiMemeOnlyInput.checked,
     embed_in_conversation: els.proactiveEmojiEmbedInput.checked,
+    deferred_append_enabled: els.proactiveEmojiDeferredAppendInput.checked,
     trigger_probability: String(
       clampProbability(els.proactiveEmojiProbabilityInput.value),
     ),
@@ -5821,6 +5833,10 @@ els.proactiveEmojiProviderInput.addEventListener(
 els.proactiveEmojiRetrievalModeInput.addEventListener(
   "change",
   renderProactiveEmojiRetrievalModeWarning,
+);
+els.proactiveEmojiDeferredAppendInput.addEventListener(
+  "change",
+  updateProactiveEmojiDeliveryControls,
 );
 els.warningCaptionProviderInput.addEventListener(
   "change",

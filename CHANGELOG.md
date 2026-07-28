@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## v2.11.0
+
+### Added
+
+- Added an opt-in deferred proactive emoji mode that sends the main text immediately and appends the selected image as a separate message.
+- Added session-scoped cancellation when a newer LLM request starts, while preserving pending emoji work during message-merger buffering.
+- Successful deferred image sends now inject their image context only after the image send succeeds.
+
 ## v2.10.2
 
 ### Added

@@ -2,6 +2,7 @@ from .common import (
     COLLECTED_LIBRARY_SOURCE,
     DEFAULT_CAPTION_PROVIDER_CONFIG_KEY,
     PENDING_PROACTIVE_EMOJI_EXTRA_KEY,
+    PROACTIVE_EMOJI_DEFERRED_APPEND_CONFIG_KEY,
     PROACTIVE_EMOJI_DECISION_EXTRA_KEY,
     PROACTIVE_EMOJI_FAST_FALLBACK_EXTRA_KEY,
     PROACTIVE_EMOJI_INTERNAL_LLM_EXTRA_KEY,
@@ -315,6 +316,312 @@ class RetrievalMixin:
             "hints": item.get("search_hints", []),
         }
 
+    def _proactive_emoji_deferred_enabled(self, cfg: dict[str, Any]) -> bool:
+        return bool(cfg.get(PROACTIVE_EMOJI_DEFERRED_APPEND_CONFIG_KEY, False))
+
+    def _deferred_job_is_current(self, job: dict[str, Any]) -> bool:
+        umo = str(job.get("umo") or "")
+        return bool(umo) and self._proactive_emoji_jobs.get(umo) is job
+
+    def _cancel_deferred_proactive_emoji_job(
+        self,
+        umo: str,
+        *,
+        reason: str = "cancelled",
+    ) -> None:
+        umo = str(umo or "")
+        if not umo:
+            return
+        current_generation = int(self._proactive_emoji_generation.get(umo, 0)) + 1
+        self._proactive_emoji_generation[umo] = current_generation
+        job = self._proactive_emoji_jobs.pop(umo, None)
+        if not isinstance(job, dict):
+            return
+        task = job.get("task")
+        if isinstance(task, asyncio.Task) and not task.done():
+            task.cancel()
+        self._log_proactive_emoji_debug(
+            job.get("cfg"),
+            "deferred job cancelled; reason=%s generation=%s",
+            reason,
+            current_generation,
+        )
+
+    async def _cancel_all_deferred_proactive_emoji_jobs(self) -> None:
+        jobs = list(self._proactive_emoji_jobs.items())
+        for umo, _job in jobs:
+            self._cancel_deferred_proactive_emoji_job(
+                umo,
+                reason="plugin termination",
+            )
+        tasks = [
+            job.get("task")
+            for _umo, job in jobs
+            if isinstance(job.get("task"), asyncio.Task)
+        ]
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    def _launch_deferred_proactive_emoji_job(
+        self,
+        event: AstrMessageEvent,
+        decision_coro,
+        cfg: dict[str, Any],
+        *,
+        assistant_text: str = "",
+    ) -> None:
+        umo = str(event.unified_msg_origin or "")
+        if not umo:
+            decision_coro.close()
+            return
+        self._cancel_deferred_proactive_emoji_job(
+            umo,
+            reason="replaced by newer deferred job",
+        )
+        generation = int(self._proactive_emoji_generation.get(umo, 0)) + 1
+        self._proactive_emoji_generation[umo] = generation
+        job: dict[str, Any] = {
+            "umo": umo,
+            "generation": generation,
+            "event": event,
+            "cfg": cfg,
+            "assistant_text": str(assistant_text or "").strip(),
+            "message_sent": asyncio.Event(),
+            "image_sending": False,
+            "task": None,
+        }
+        try:
+            task = asyncio.create_task(
+                self._run_deferred_proactive_emoji_job(job, decision_coro)
+            )
+        except RuntimeError:
+            decision_coro.close()
+            return
+        job["task"] = task
+        self._proactive_emoji_jobs[umo] = job
+        task.add_done_callback(self._log_deferred_proactive_emoji_task)
+
+    async def _run_deferred_proactive_emoji_job(
+        self,
+        job: dict[str, Any],
+        decision_coro,
+    ) -> None:
+        cfg = job.get("cfg")
+        try:
+            image_item = await decision_coro
+            await job["message_sent"].wait()
+            if not self._deferred_job_is_current(job):
+                return
+            await self._send_deferred_proactive_emoji_image(job, image_item)
+        except asyncio.CancelledError:
+            self._log_proactive_emoji_debug(
+                cfg,
+                "deferred proactive emoji job cancelled before send.",
+            )
+            raise
+        except Exception as exc:
+            self._log_proactive_emoji_error_debug(
+                cfg,
+                "deferred proactive emoji job failed; error=%s",
+                exc,
+            )
+            logger.warning(
+                "astrbot_plugin_smart_imagechat_hub: deferred proactive emoji job failed: %s",
+                exc,
+                exc_info=True,
+            )
+        finally:
+            if self._deferred_job_is_current(job):
+                self._proactive_emoji_jobs.pop(str(job.get("umo") or ""), None)
+
+    def _log_deferred_proactive_emoji_task(self, task: asyncio.Task) -> None:
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            return
+        except Exception as exc:
+            logger.warning(
+                "astrbot_plugin_smart_imagechat_hub: deferred proactive emoji task callback failed: %s",
+                exc,
+                exc_info=True,
+            )
+
+    def _mark_deferred_proactive_emoji_message_sent(
+        self,
+        event: AstrMessageEvent,
+    ) -> None:
+        umo = str(event.unified_msg_origin or "")
+        job = self._proactive_emoji_jobs.get(umo)
+        if not isinstance(job, dict) or job.get("event") is not event:
+            return
+        if job.get("image_sending", False):
+            return
+        result = event.get_result()
+        if not isinstance(result, MessageEventResult) or not result.is_llm_result():
+            self._cancel_deferred_proactive_emoji_job(
+                umo,
+                reason="base result was not an LLM reply",
+            )
+            return
+        job["assistant_text"] = result.get_plain_text().strip()
+        job["message_sent"].set()
+
+    async def _send_deferred_proactive_emoji_image(
+        self,
+        job: dict[str, Any],
+        image_item: dict[str, Any] | None,
+    ) -> None:
+        cfg = job["cfg"]
+        if not image_item:
+            self._log_proactive_emoji_outcome(
+                "deferred_not_selected",
+                mode=cfg.get("retrieval_mode"),
+            )
+            return
+        event = job["event"]
+        image_path = self._abs_plugin_data_path(image_item["rel_path"])
+        if not image_path.is_file():
+            self._log_proactive_emoji_outcome(
+                "deferred_file_missing",
+                rel_path=image_item.get("rel_path"),
+            )
+            return
+        image_tags = self._tags_from_item(image_item)
+        send_image_path, cleanup_paths = await self._prepare_send_image_path(
+            image_path,
+            image_tags,
+        )
+        try:
+            job["image_sending"] = True
+            await event.send(MessageEventResult().file_image(str(send_image_path)))
+            job["image_sending"] = False
+            finish_task = asyncio.create_task(
+                self._finish_deferred_proactive_emoji_send(
+                    job,
+                    image_item,
+                    image_path,
+                    image_tags,
+                )
+            )
+            try:
+                await asyncio.shield(finish_task)
+            except asyncio.CancelledError:
+                await finish_task
+                raise
+        finally:
+            job["image_sending"] = False
+            self._cleanup_temp_paths(cleanup_paths)
+
+    async def _finish_deferred_proactive_emoji_send(
+        self,
+        job: dict[str, Any],
+        image_item: dict[str, Any],
+        image_path: Path,
+        image_tags: list[str],
+    ) -> None:
+        await self._after_plugin_sent_image_for_meme_combat(
+            job["event"],
+            str(image_path),
+            source="proactive_emoji",
+        )
+        self._remember_recent_proactive_emoji(image_item)
+        cfg = job["cfg"]
+        assistant_text = str(job.get("assistant_text") or "").strip()
+        assistant_fingerprint = self._assistant_text_fingerprint(assistant_text)
+        if assistant_fingerprint and cfg.get("context_injection_enabled", True):
+            self._pending_image_inject_contexts[job["umo"]] = {
+                "tags": image_tags,
+                "filename": image_item.get("filename", ""),
+                "source": "proactive_emoji",
+                "assistant_text": assistant_text,
+                "assistant_fingerprint": assistant_fingerprint,
+            }
+            await self._inject_sent_image_to_history(job["event"])
+        self._log_proactive_emoji_outcome(
+            "deferred_sent",
+            rel_path=image_item.get("rel_path"),
+        )
+
+    async def _run_serial_proactive_emoji_decision(
+        self,
+        event: AstrMessageEvent,
+        reply_text: str,
+        cfg: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        await self._sync_library(caption_mode="none")
+        candidates = self._proactive_emoji_candidates(bool(cfg["meme_only"]))
+        if not candidates:
+            self._log_proactive_emoji_outcome(
+                "no_candidates",
+                mode=cfg.get("retrieval_mode"),
+            )
+            return None
+        fast_prefilter = None
+        if cfg.get("retrieval_mode") == PROACTIVE_BOT_REPLY_FAST_RETRIEVAL_MODE:
+            fast_prefilter = build_proactive_fast_prefilter(reply_text, candidates)
+            candidates = fast_prefilter.candidates
+            if not candidates:
+                self._log_proactive_emoji_outcome(
+                    "no_prefilter_candidates",
+                    mode=cfg.get("retrieval_mode"),
+                )
+                return None
+        if fast_prefilter is not None:
+            decision = await self._analyze_fast_proactive_emoji(
+                event,
+                reply_text,
+                fast_prefilter,
+                str(cfg.get("analysis_provider_id") or ""),
+                cfg=cfg,
+                source_kind=PROACTIVE_EMOJI_SOURCE_BOT_REPLY,
+            )
+        else:
+            decision = await self._analyze_proactive_emoji(
+                event,
+                reply_text,
+                candidates,
+                str(cfg.get("analysis_provider_id") or ""),
+                source_kind=PROACTIVE_EMOJI_SOURCE_BOT_REPLY,
+                cfg=cfg,
+            )
+        return self._select_proactive_emoji(decision, candidates, cfg)
+
+    def _start_deferred_proactive_emoji_after_result(
+        self,
+        event: AstrMessageEvent,
+        result: MessageEventResult,
+        cfg: dict[str, Any],
+    ) -> None:
+        reply_text = result.get_plain_text().strip()
+        if not reply_text:
+            return
+        current_job = self._proactive_emoji_jobs.get(
+            str(event.unified_msg_origin or "")
+        )
+        if isinstance(current_job, dict) and current_job.get("event") is event:
+            current_job["assistant_text"] = reply_text
+            return
+        if cfg.get("retrieval_mode") in {
+            "user_message_parallel",
+            PROACTIVE_FAST_RETRIEVAL_MODE,
+        }:
+            return
+        if event.get_extra(PROACTIVE_EMOJI_DECISION_EXTRA_KEY, False):
+            return
+        event.set_extra(PROACTIVE_EMOJI_DECISION_EXTRA_KEY, True)
+        if not self._proactive_emoji_probability_hit(cfg):
+            self._log_proactive_emoji_outcome(
+                "probability_missed",
+                mode=cfg.get("retrieval_mode"),
+            )
+            return
+        self._launch_deferred_proactive_emoji_job(
+            event,
+            self._run_serial_proactive_emoji_decision(event, reply_text, cfg),
+            cfg,
+            assistant_text=reply_text,
+        )
+
     async def _maybe_append_proactive_emoji(self, event: AstrMessageEvent) -> None:
         result = event.get_result()
         if isinstance(result, MessageEventResult):
@@ -346,6 +653,10 @@ class RetrievalMixin:
             self._log_proactive_emoji_debug(
                 cfg, "append skipped; result already contains image."
             )
+            return
+
+        if self._proactive_emoji_deferred_enabled(cfg):
+            self._start_deferred_proactive_emoji_after_result(event, result, cfg)
             return
 
         if task is not None:
@@ -599,6 +910,13 @@ class RetrievalMixin:
                     user_message,
                     cfg,
                 )
+            if self._proactive_emoji_deferred_enabled(cfg):
+                self._launch_deferred_proactive_emoji_job(event, coroutine, cfg)
+                self._log_proactive_emoji_debug(
+                    cfg,
+                    "deferred parallel task launched; waiting for base message send.",
+                )
+                return
             task = asyncio.create_task(coroutine)
         except RuntimeError as exc:
             if coroutine is not None:

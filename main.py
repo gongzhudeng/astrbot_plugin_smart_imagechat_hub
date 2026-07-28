@@ -33,6 +33,7 @@ from .backend.common import (
     Image,
     MemeCombatMessageFilter,
     Plain,
+    PROACTIVE_EMOJI_INTERNAL_LLM_EXTRA_KEY,
     TextPart,
     WakeImageRequestFilter,
     _is_explicit_user_search_wake,
@@ -81,6 +82,8 @@ class SmartImageSenderPlugin(
         )
         self._pending_image_inject_contexts: dict[str, dict] = {}
         self._pending_image_context_confirmations: dict[str, dict] = {}
+        self._proactive_emoji_jobs: dict[str, dict[str, Any]] = {}
+        self._proactive_emoji_generation: dict[str, int] = {}
         self._recent_proactive_emoji_rel_paths: list[str] = []
         self._lock = asyncio.Lock()
         self._caption_provider_call_lock = asyncio.Lock()
@@ -135,6 +138,7 @@ class SmartImageSenderPlugin(
         self._start_auto_collection_worker()
 
     async def terminate(self) -> None:
+        await self._cancel_all_deferred_proactive_emoji_jobs()
         if (
             self._auto_collection_worker_task
             and not self._auto_collection_worker_task.done()
@@ -311,6 +315,11 @@ class SmartImageSenderPlugin(
 
     @filter.on_llm_request(priority=20)
     async def on_llm_request(self, event: AstrMessageEvent, req):
+        if not event.get_extra(PROACTIVE_EMOJI_INTERNAL_LLM_EXTRA_KEY, False):
+            self._cancel_deferred_proactive_emoji_job(
+                event.unified_msg_origin,
+                reason="new LLM request",
+            )
         await self._reconcile_sent_image_request_context(event, req)
         await self._start_parallel_proactive_emoji(
             event,
@@ -319,6 +328,7 @@ class SmartImageSenderPlugin(
 
     @filter.after_message_sent(priority=20)
     async def after_message_sent(self, event: AstrMessageEvent):
+        self._mark_deferred_proactive_emoji_message_sent(event)
         await self._send_pending_proactive_emoji(event)
         await self._send_pending_meme_combat_burst(event)
         self._cleanup_deferred_send_image_style_paths(event)
