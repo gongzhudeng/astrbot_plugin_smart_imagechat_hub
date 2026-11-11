@@ -129,22 +129,20 @@ class CaptionLibraryMixin:
                     and caption_status not in {"pending", "running", "failed"}
                     and not (
                         configured_manual_override
-                        or (
-                            isinstance(item, dict)
-                            and item.get("manual_tags_override")
-                        )
+                        or (isinstance(item, dict) and item.get("manual_tags_override"))
                     )
                 ):
                     auto_tags = item_tags
 
                 if configured_tag_item:
                     manual_override = configured_manual_override or bool(
-                        configured_auto_tags
-                        and configured_tags != configured_auto_tags
+                        configured_auto_tags and configured_tags != configured_auto_tags
                     )
                     if manual_override:
                         manual_tags = configured_tags
-                    elif configured_auto_tags and configured_tags == configured_auto_tags:
+                    elif (
+                        configured_auto_tags and configured_tags == configured_auto_tags
+                    ):
                         manual_tags = []
                     else:
                         manual_tags = configured_tags
@@ -294,9 +292,7 @@ class CaptionLibraryMixin:
             except (OSError, ValueError):
                 continue
             mtime_ns = getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1_000_000_000))
-            chunks.append(
-                f"{rel_path}:{stat.st_size}:{int(stat.st_mtime)}:{mtime_ns}"
-            )
+            chunks.append(f"{rel_path}:{stat.st_size}:{int(stat.st_mtime)}:{mtime_ns}")
         config_part = {
             IMAGE_TAGS_CONFIG_KEY: self.config.get(IMAGE_TAGS_CONFIG_KEY, []),
             GLOBAL_TAGS_CONFIG_KEY: self._config_get(GLOBAL_TAGS_CONFIG_KEY, []),
@@ -399,7 +395,9 @@ class CaptionLibraryMixin:
         tasks = [task for task in self._caption_cleanup_tasks if not task.done()]
         if not tasks:
             return
-        await asyncio.gather(*(asyncio.shield(task) for task in tasks), return_exceptions=True)
+        await asyncio.gather(
+            *(asyncio.shield(task) for task in tasks), return_exceptions=True
+        )
 
     def _make_caption_progress(self, **updates: Any) -> dict[str, Any]:
         now = int(time.time())
@@ -506,10 +504,11 @@ class CaptionLibraryMixin:
         snapshot = self._normalize_caption_progress(snapshot)
         snapshot["progress_page_url"] = PROGRESS_PAGE_PATH
         snapshot["config_page_url"] = CONFIG_PAGE_PATH
-        snapshot["config_ready"] = (
-            snapshot.get("status") in {"done", "failed", "cancelled"}
-            and not snapshot.get("running")
-        )
+        snapshot["config_ready"] = snapshot.get("status") in {
+            "done",
+            "failed",
+            "cancelled",
+        } and not snapshot.get("running")
         snapshot["imagebed_import"] = self._imagebed_import_status_snapshot()
         return snapshot
 
@@ -545,11 +544,9 @@ class CaptionLibraryMixin:
                 else:
                     manual_items.append(library_item)
 
-        sort_key = (
-            lambda item: (
-                self._to_int(item.get("captioned_at"), 0),
-                self._to_int(item.get("updated_at"), 0),
-            )
+        sort_key = lambda item: (
+            self._to_int(item.get("captioned_at"), 0),
+            self._to_int(item.get("updated_at"), 0),
         )
         manual_items.sort(
             key=sort_key,
@@ -620,18 +617,14 @@ class CaptionLibraryMixin:
             "request_keywords": self._request_keywords(),
             "hidden_images": sorted(self._hidden_rel_paths()),
             "sync_on_startup": self._cfg_bool("sync_on_startup"),
-            "match_confidence_threshold": self._cfg_float(
-                "match_confidence_threshold"
-            ),
+            "match_confidence_threshold": self._cfg_float("match_confidence_threshold"),
             PAGE_LIBRARY_DEFAULT_VIEW_MODE_CONFIG_KEY: (
                 self._page_library_default_view_mode()
             ),
             "reply_after_search": {
                 "use_custom_reply": self._cfg_bool("use_custom_reply"),
                 "custom_reply": self._cfg_str("custom_reply"),
-                "llm_reply_when_not_found": self._cfg_bool(
-                    "llm_reply_when_not_found"
-                ),
+                "llm_reply_when_not_found": self._cfg_bool("llm_reply_when_not_found"),
                 "not_found_reply": self._cfg_str("not_found_reply"),
                 "empty_library_reply": self._cfg_str("empty_library_reply"),
             },
@@ -665,8 +658,8 @@ class CaptionLibraryMixin:
             )
         raw_meme_combat_cfg = payload.get(MEME_COMBAT_CONFIG_KEY)
         if isinstance(raw_meme_combat_cfg, dict):
-            self.config[MEME_COMBAT_CONFIG_KEY] = (
-                self._normalize_meme_combat_config(raw_meme_combat_cfg)
+            self.config[MEME_COMBAT_CONFIG_KEY] = self._normalize_meme_combat_config(
+                raw_meme_combat_cfg
             )
         raw_send_image_style_cfg = payload.get(SEND_IMAGE_STYLE_CONFIG_KEY)
         if isinstance(raw_send_image_style_cfg, dict):
@@ -763,9 +756,7 @@ class CaptionLibraryMixin:
             ],
             "provider_id": settings[DEFAULT_CAPTION_PROVIDER_CONFIG_KEY],
             "provider_options": self._chat_provider_options(),
-            "provider_warning": not bool(
-                settings[DEFAULT_CAPTION_PROVIDER_CONFIG_KEY]
-            ),
+            "provider_warning": not bool(settings[DEFAULT_CAPTION_PROVIDER_CONFIG_KEY]),
             "updated_at": int(time.time()),
         }
 
@@ -783,9 +774,7 @@ class CaptionLibraryMixin:
             **self._auto_collection_config(),
             "pending_count": len(self._collection_pool_items()),
             "solidified_count": self._source_image_count(COLLECTED_LIBRARY_SOURCE),
-            "solidified_remaining_capacity": (
-                self._solidified_remaining_capacity()
-            ),
+            "solidified_remaining_capacity": (self._solidified_remaining_capacity()),
             "updated_at": int(time.time()),
         }
 
@@ -989,19 +978,9 @@ class CaptionLibraryMixin:
     def _tag_category_settings(self) -> dict[str, Any]:
         raw = self.config.get(TAG_CATEGORY_CONFIG_KEY, {})
         settings = self._normalize_tag_category_settings(raw)
-        provider_id = str(self.config.get(DEFAULT_CAPTION_PROVIDER_CONFIG_KEY) or "").strip()
-        provider_ids = self._available_chat_provider_ids()
-        if provider_id and provider_id not in provider_ids:
-            provider_id = ""
-        if not provider_id:
-            provider_id = str(settings.get(DEFAULT_CAPTION_PROVIDER_CONFIG_KEY) or "").strip()
-            if provider_id and provider_id not in provider_ids:
-                provider_id = ""
-        if not provider_id:
-            provider_id = self._system_default_image_caption_provider_id()
-            if provider_id and provider_id not in provider_ids:
-                provider_id = ""
-        settings[DEFAULT_CAPTION_PROVIDER_CONFIG_KEY] = provider_id
+        settings[DEFAULT_CAPTION_PROVIDER_CONFIG_KEY] = (
+            self._resolve_caption_provider_id()
+        )
         return settings
 
     def _normalize_tag_category_settings(self, raw: Any) -> dict[str, Any]:
@@ -1027,9 +1006,7 @@ class CaptionLibraryMixin:
                 deduped_enabled.append(preset_key)
 
         custom_categories = self._normalize_tags(raw.get("custom_categories", []))
-        provider_id = str(
-            raw.get(DEFAULT_CAPTION_PROVIDER_CONFIG_KEY) or ""
-        ).strip()
+        provider_id = str(raw.get(DEFAULT_CAPTION_PROVIDER_CONFIG_KEY) or "").strip()
         return {
             "enabled_presets": deduped_enabled,
             "custom_categories": custom_categories,
@@ -1058,11 +1035,10 @@ class CaptionLibraryMixin:
         old_settings: dict[str, Any],
         new_settings: dict[str, Any],
     ) -> bool:
-        return (
-            old_settings.get("enabled_presets", [])
-            != new_settings.get("enabled_presets", [])
-            or old_settings.get("custom_categories", [])
-            != new_settings.get("custom_categories", [])
+        return old_settings.get("enabled_presets", []) != new_settings.get(
+            "enabled_presets", []
+        ) or old_settings.get("custom_categories", []) != new_settings.get(
+            "custom_categories", []
         )
 
     def _caption_category_labels(self) -> list[str]:
@@ -1090,9 +1066,13 @@ class CaptionLibraryMixin:
                 "2. 除基础图片类型标签外，最多再生成 1 个图片类型/风格相关标签，例如“二次元”“自拍”“截图”“动图”；不要生成超过 2 个图片类型相关标签。"
             )
         else:
-            rules.append("1. 不要专门生成“照片”或“表情包”等基础图片类型标签，除非自定义类别明确要求。")
+            rules.append(
+                "1. 不要专门生成“照片”或“表情包”等基础图片类型标签，除非自定义类别明确要求。"
+            )
         if "person_features" in enabled:
-            rules.append("3. 如果图片中有人物，可以描述人物特征、发色、服饰、表情或整体印象。")
+            rules.append(
+                "3. 如果图片中有人物，可以描述人物特征、发色、服饰、表情或整体印象。"
+            )
         if "body_shape" in enabled:
             rules.append(
                 "4. 如果图片中存在女性人物，必须在不违反安全规则、不过度性化、不中伤人物的前提下，生成 1 个描述角色身材是否丰满的中性标签，例如“身材丰满”“身材匀称”“身材纤细”或“身材不明显”。"
@@ -1195,8 +1175,8 @@ class CaptionLibraryMixin:
                 self._sync_config_image_files(existing_rel_paths)
                 self._sync_config_tags(existing_rel_paths)
                 self._refresh_image_tag_schema(existing_rel_paths)
-                self._last_library_signature = (
-                    self._library_signature_for_rel_paths(existing_rel_paths)
+                self._last_library_signature = self._library_signature_for_rel_paths(
+                    existing_rel_paths
                 )
             return len(
                 [
@@ -1222,10 +1202,7 @@ class CaptionLibraryMixin:
                 "自动标签进程失败。失败的图床同步图像仍保留在“导入进程”栏目中，"
                 "需要重新点击“开始”按钮进行标签生成。"
             )
-        return (
-            "自动标签进程失败。失败的手动上传图像已移除，"
-            "需要重新上传图片。"
-        )
+        return "自动标签进程失败。失败的手动上传图像已移除，需要重新上传图片。"
 
     def _rollback_caption_failed_item(
         self,
@@ -1602,4 +1579,3 @@ class CaptionLibraryMixin:
                 remaining,
                 elapsed,
             )
-

@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## v2.11.2
+
+### Fixed
+
+- Fixed the plugin silently overwriting the system-wide default image caption provider on every startup and reload. `provider_settings.default_image_caption_provider_id` is now authoritative: the startup sync only copies it into the plugin config and never writes it back, so a model selected in the AstrBot settings survives restarts.
+- Removed the write side effect from caption provider resolution. Tagging runs and WebUI config reads can no longer revert a model chosen in the system settings.
+- Unified provider resolution into a single read-only path (system setting -> plugin config -> tag category settings) that skips provider ids which no longer exist.
+
+### Changed
+
+- Reformatted backend modules for consistent line width. No behaviour change.
+
 ## v2.11.1
 
 ### Fixed

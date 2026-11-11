@@ -155,7 +155,9 @@ class ImageBedImportMixin:
                 current.get("secret_access_key")
             )
         bucket_name = self._clean_imagebed_text(
-            raw.get("bucket_name") if "bucket_name" in raw else current.get("bucket_name")
+            raw.get("bucket_name")
+            if "bucket_name" in raw
+            else current.get("bucket_name")
         )
         endpoint_url = self._clean_imagebed_text(
             raw.get("endpoint_url")
@@ -232,7 +234,9 @@ class ImageBedImportMixin:
             "secret_configured": bool(cfg["secret_access_key"]),
             "bucket_name": cfg["bucket_name"],
             "endpoint_url": cfg["endpoint_url"],
-            "effective_endpoint_url": self._imagebed_endpoint_url(cfg, allow_empty=True),
+            "effective_endpoint_url": self._imagebed_endpoint_url(
+                cfg, allow_empty=True
+            ),
             "prefix": cfg["prefix"],
             "max_file_size_kb": cfg["max_file_size_kb"],
             "scheduled_enabled": cfg["scheduled_enabled"],
@@ -260,9 +264,10 @@ class ImageBedImportMixin:
 
     def _validate_imagebed_config(self, cfg: dict[str, Any]) -> None:
         missing = []
-        if not str(cfg.get("account_id") or "").strip() and not str(
-            cfg.get("endpoint_url") or ""
-        ).strip():
+        if (
+            not str(cfg.get("account_id") or "").strip()
+            and not str(cfg.get("endpoint_url") or "").strip()
+        ):
             missing.append("account_id")
         for key in ("access_key_id", "secret_access_key", "bucket_name"):
             if not str(cfg.get(key) or "").strip():
@@ -277,12 +282,8 @@ class ImageBedImportMixin:
             active = {}
         else:
             active = dict(active)
-            if (
-                active.get("status") == "running"
-                and (
-                    not self._imagebed_import_task
-                    or self._imagebed_import_task.done()
-                )
+            if active.get("status") == "running" and (
+                not self._imagebed_import_task or self._imagebed_import_task.done()
             ):
                 active["status"] = "stopped"
         pending_count = self._imagebed_pending_count()
@@ -410,11 +411,13 @@ class ImageBedImportMixin:
         if not self._imagebed_caption_paused():
             return False
         rel_path = self._norm_rel_path(item.get("rel_path"))
-        return (
-            self._library_source_for_rel_path(rel_path, item)
-            == IMAGEBED_LIBRARY_SOURCE
-            and item.get("caption_status") in {"pending", "running", "failed"}
-        )
+        return self._library_source_for_rel_path(
+            rel_path, item
+        ) == IMAGEBED_LIBRARY_SOURCE and item.get("caption_status") in {
+            "pending",
+            "running",
+            "failed",
+        }
 
     def _imagebed_pending_count(self) -> int:
         images = self._index.get("images", {})
@@ -534,7 +537,9 @@ class ImageBedImportMixin:
             "x-amz-date": amz_date,
         }
         signed_headers = "host;x-amz-content-sha256;x-amz-date"
-        canonical_headers = "".join(f"{key}:{headers[key]}\n" for key in sorted(headers))
+        canonical_headers = "".join(
+            f"{key}:{headers[key]}\n" for key in sorted(headers)
+        )
         canonical_request = "\n".join(
             [
                 "GET",
@@ -686,8 +691,7 @@ class ImageBedImportMixin:
             )
         return {
             "objects": objects,
-            "is_truncated": self._xml_child_text(root, "IsTruncated").lower()
-            == "true",
+            "is_truncated": self._xml_child_text(root, "IsTruncated").lower() == "true",
             "next_token": self._xml_child_text(root, "NextContinuationToken"),
         }
 
@@ -818,7 +822,9 @@ class ImageBedImportMixin:
                         return
                     active["listed"] = len(objects)
                     active["updated_at"] = int(time.time())
-                max_bytes = max(1, self._to_int(cfg.get("max_file_size_kb"), 5120)) * 1024
+                max_bytes = (
+                    max(1, self._to_int(cfg.get("max_file_size_kb"), 5120)) * 1024
+                )
                 for obj in objects:
                     await asyncio.sleep(0)
                     if not await self._imagebed_increment_counter(
@@ -898,9 +904,7 @@ class ImageBedImportMixin:
                                 obj,
                                 "imported",
                             )
-                            active["copied"] = (
-                                self._to_int(active.get("copied"), 0) + 1
-                            )
+                            active["copied"] = self._to_int(active.get("copied"), 0) + 1
                             active["updated_at"] = int(time.time())
                             copied_any = True
                             copied_since_save += 1
@@ -932,7 +936,9 @@ class ImageBedImportMixin:
                     active["message"] = "Imagebed import finished."
                     active["finished_at"] = int(time.time())
                     active["updated_at"] = int(time.time())
-                self._imagebed_import_state["last_successful_sync_at"] = int(time.time())
+                self._imagebed_import_state["last_successful_sync_at"] = int(
+                    time.time()
+                )
                 self._save_index()
                 self._save_imagebed_import_state()
                 existing_rel_paths = self._all_existing_index_rel_paths()
@@ -1201,10 +1207,10 @@ class ImageBedImportMixin:
         item: dict[str, Any],
         rel_path: str,
     ) -> tuple[dict[str, Any], str]:
-        if (
-            self._library_source_for_rel_path(rel_path, item)
-            != IMAGEBED_LIBRARY_SOURCE
-            or not rel_path.startswith(f"files/{IMAGEBED_IMPORT_PENDING_FOLDER}/")
+        if self._library_source_for_rel_path(
+            rel_path, item
+        ) != IMAGEBED_LIBRARY_SOURCE or not rel_path.startswith(
+            f"files/{IMAGEBED_IMPORT_PENDING_FOLDER}/"
         ):
             return item, rel_path
         source_path = self._abs_plugin_data_path(rel_path)
@@ -1248,7 +1254,9 @@ class ImageBedImportMixin:
     def _refresh_caption_progress_after_imagebed_pending_change(self) -> None:
         pending_count = len(self._pending_caption_rel_paths())
         running_count = self._running_caption_count()
-        paused_count = self._imagebed_pending_count() if self._imagebed_caption_paused() else 0
+        paused_count = (
+            self._imagebed_pending_count() if self._imagebed_caption_paused() else 0
+        )
         completed = self._to_int(self._caption_progress.get("completed"), 0)
         failed = self._to_int(self._caption_progress.get("failed"), 0)
         if self._caption_task and not self._caption_task.done():
@@ -1308,9 +1316,7 @@ class ImageBedImportMixin:
         if self._imagebed_sync_task and not self._imagebed_sync_task.done():
             return
         try:
-            self._imagebed_sync_task = asyncio.create_task(
-                self._imagebed_sync_loop()
-            )
+            self._imagebed_sync_task = asyncio.create_task(self._imagebed_sync_loop())
         except RuntimeError:
             logger.warning(
                 "astrbot_plugin_smart_imagechat_hub: failed to start imagebed sync scheduler; no running event loop."
@@ -1331,7 +1337,9 @@ class ImageBedImportMixin:
             if not cfg.get("scheduled_enabled"):
                 await asyncio.sleep(3600)
                 continue
-            delay = self._seconds_until_backup_time(str(cfg.get("scheduled_time") or "03:30"))
+            delay = self._seconds_until_backup_time(
+                str(cfg.get("scheduled_time") or "03:30")
+            )
             await asyncio.sleep(delay)
             try:
                 await self._sync_library_if_changed(caption_mode="none")

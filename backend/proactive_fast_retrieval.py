@@ -1,6 +1,13 @@
 from dataclasses import dataclass
 
-from .common import Any, SEARCH_CANDIDATE_LIMIT, SEARCH_SELECTION_POOL_SIZE, json, random, re
+from .common import (
+    Any,
+    SEARCH_CANDIDATE_LIMIT,
+    SEARCH_SELECTION_POOL_SIZE,
+    json,
+    random,
+    re,
+)
 
 
 PROACTIVE_FAST_RETRIEVAL_MODE = "user_message_fast_prefilter"
@@ -202,9 +209,9 @@ def build_proactive_fast_prompt(
         "候选：\n"
         f"{json.dumps(compact_candidates, ensure_ascii=False)}\n\n"
         "只输出 JSON："
-        "{\"matched\": true/false, \"image_ids\": [\"候选id\"], "
-        "\"image_id\": \"可为空\", \"need\": \"简短语境\", "
-        "\"reason\": \"简短理由\", \"confidence\": 0.0}"
+        '{"matched": true/false, "image_ids": ["候选id"], '
+        '"image_id": "可为空", "need": "简短语境", '
+        '"reason": "简短理由", "confidence": 0.0}'
     )
 
 
@@ -261,7 +268,10 @@ def _fast_query_profile(
         "filename_terms": filename_terms,
         "emotions": emotion_keys,
         "semantics": semantic_keys,
-        "generic_request": not direct_tags and not specific_terms and not emotion_keys and not semantic_keys,
+        "generic_request": not direct_tags
+        and not specific_terms
+        and not emotion_keys
+        and not semantic_keys,
         "message_length": len(text),
     }
 
@@ -281,7 +291,10 @@ def _fast_search_text(text: str) -> str:
                 break
         if changed:
             continue
-        if compact.startswith(("发", "来")) and compact[1:] in _FAST_GENERIC_REQUEST_TERMS:
+        if (
+            compact.startswith(("发", "来"))
+            and compact[1:] in _FAST_GENERIC_REQUEST_TERMS
+        ):
             compact = compact[1:]
             changed = True
             continue

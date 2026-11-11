@@ -412,8 +412,8 @@ class WebApiMixin:
                 self._sync_config_image_files(existing_rel_paths)
                 self._sync_config_tags(existing_rel_paths)
                 self._refresh_image_tag_schema(existing_rel_paths)
-                self._last_library_signature = (
-                    self._library_signature_for_rel_paths(existing_rel_paths)
+                self._last_library_signature = self._library_signature_for_rel_paths(
+                    existing_rel_paths
                 )
                 pending_count = len(self._pending_caption_rel_paths())
                 self._set_caption_progress(
@@ -510,8 +510,8 @@ class WebApiMixin:
             payload["battle"] = {**battle_payload, "analysis_provider_id": ""}
 
         async with self._lock:
-            self.config[MEME_COMBAT_CONFIG_KEY] = (
-                self._normalize_meme_combat_config(payload)
+            self.config[MEME_COMBAT_CONFIG_KEY] = self._normalize_meme_combat_config(
+                payload
             )
             self._save_plugin_config()
             self._refresh_meme_combat_schema()
@@ -588,7 +588,7 @@ class WebApiMixin:
         headers = {
             "Content-Disposition": (
                 f'attachment; filename="{item["filename"]}"; '
-                f'filename*=UTF-8\'\'{item["filename"]}'
+                f"filename*=UTF-8''{item['filename']}"
             )
         }
         try:
@@ -656,9 +656,7 @@ class WebApiMixin:
         )
 
     async def external_import_tree_api(self):
-        return jsonify(
-            {"status": "ok", "data": self._external_import_visible_tree()}
-        )
+        return jsonify({"status": "ok", "data": self._external_import_visible_tree()})
 
     async def external_import_stat_api(self):
         payload = await request.get_json(silent=True) or {}
@@ -807,7 +805,9 @@ class WebApiMixin:
         payload = await request.get_json(silent=True) or {}
         if not isinstance(payload, dict):
             payload = {}
-        return jsonify({"status": "ok", "data": await self._test_imagebed_connection(payload)})
+        return jsonify(
+            {"status": "ok", "data": await self._test_imagebed_connection(payload)}
+        )
 
     async def imagebed_import_status_api(self):
         return jsonify(
@@ -1053,7 +1053,7 @@ class WebApiMixin:
 
         headers = {
             "Content-Disposition": (
-                f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename}'
+                f"attachment; filename=\"{filename}\"; filename*=UTF-8''{filename}"
             )
         }
         try:
@@ -1069,9 +1069,12 @@ class WebApiMixin:
     async def caption_import_config_api(self):
         temp_path: Path | None = None
         try:
-            temp_path, filename, library_mode, overwrite_plugin_config = (
-                await self._receive_backup_import_file()
-            )
+            (
+                temp_path,
+                filename,
+                library_mode,
+                overwrite_plugin_config,
+            ) = await self._receive_backup_import_file()
             return await self._handle_backup_import(
                 temp_path,
                 filename=filename,
@@ -1099,7 +1102,9 @@ class WebApiMixin:
                 }
             )
         if not filename.lower().endswith(".zip"):
-            return jsonify({"status": "error", "message": "Only zip backup is supported"})
+            return jsonify(
+                {"status": "error", "message": "Only zip backup is supported"}
+            )
 
         try:
             backup = await asyncio.to_thread(self._read_backup_zip, temp_path)
@@ -1129,9 +1134,12 @@ class WebApiMixin:
 
     async def caption_import_config_file_api(self):
         try:
-            temp_path, filename, library_mode, overwrite_plugin_config = (
-                await self._receive_backup_import_file()
-            )
+            (
+                temp_path,
+                filename,
+                library_mode,
+                overwrite_plugin_config,
+            ) = await self._receive_backup_import_file()
         except ValueError as exc:
             return jsonify({"status": "error", "message": str(exc)})
 
@@ -1282,4 +1290,3 @@ class WebApiMixin:
                 },
             }
         )
-

@@ -65,18 +65,10 @@ class BackupRestoreMixin:
         config_snapshot = self._config_snapshot()
         index_snapshot = self._json_safe_copy(self._index)
         collection_pool_snapshot = self._json_safe_copy(self._collection_pool)
-        discarded_collection_snapshot = self._json_safe_copy(
-            self._discarded_collection
-        )
-        external_import_snapshot = self._json_safe_copy(
-            self._external_import_state
-        )
-        imagebed_import_snapshot = self._json_safe_copy(
-            self._imagebed_import_state
-        )
-        imagebed_discarded_snapshot = self._json_safe_copy(
-            self._imagebed_discarded
-        )
+        discarded_collection_snapshot = self._json_safe_copy(self._discarded_collection)
+        external_import_snapshot = self._json_safe_copy(self._external_import_state)
+        imagebed_import_snapshot = self._json_safe_copy(self._imagebed_import_state)
+        imagebed_discarded_snapshot = self._json_safe_copy(self._imagebed_discarded)
         manifest = {
             "plugin": PLUGIN_NAME,
             "version": PLUGIN_VERSION,
@@ -179,21 +171,15 @@ class BackupRestoreMixin:
                 )
                 zf.writestr(
                     AUTO_COLLECTION_DISCARDED_FILENAME,
-                    self._json_dump_bytes(
-                        snapshot.get("discarded_collection", {})
-                    ),
+                    self._json_dump_bytes(snapshot.get("discarded_collection", {})),
                 )
                 zf.writestr(
                     EXTERNAL_IMPORT_STATE_FILENAME,
-                    self._json_dump_bytes(
-                        snapshot.get("external_import_state", {})
-                    ),
+                    self._json_dump_bytes(snapshot.get("external_import_state", {})),
                 )
                 zf.writestr(
                     IMAGEBED_IMPORT_STATE_FILENAME,
-                    self._json_dump_bytes(
-                        snapshot.get("imagebed_import_state", {})
-                    ),
+                    self._json_dump_bytes(snapshot.get("imagebed_import_state", {})),
                 )
                 zf.writestr(
                     IMAGEBED_IMPORT_DISCARDED_FILENAME,
@@ -293,14 +279,20 @@ class BackupRestoreMixin:
             )
         return sorted(
             items,
-            key=lambda item: (self._to_int(item.get("created_at"), 0), item["filename"]),
+            key=lambda item: (
+                self._to_int(item.get("created_at"), 0),
+                item["filename"],
+            ),
             reverse=True,
         )
 
     def _scheduled_backup_item_by_id(self, backup_id: str) -> dict[str, Any] | None:
         normalized = str(backup_id or "").strip()
         for item in self._scheduled_backup_files():
-            if normalized in {str(item.get("id") or ""), str(item.get("filename") or "")}:
+            if normalized in {
+                str(item.get("id") or ""),
+                str(item.get("filename") or ""),
+            }:
                 return item
         return None
 
@@ -373,7 +365,9 @@ class BackupRestoreMixin:
         return item
 
     def _enforce_scheduled_backup_limit(self) -> None:
-        limit = max(1, self._to_int(self._scheduled_backup_config().get("backup_limit"), 3))
+        limit = max(
+            1, self._to_int(self._scheduled_backup_config().get("backup_limit"), 3)
+        )
         backups = self._scheduled_backup_files()
         for item in backups[limit:]:
             try:
@@ -417,9 +411,7 @@ class BackupRestoreMixin:
     def _start_scheduled_backup_task(self) -> None:
         if self._scheduled_backup_task and not self._scheduled_backup_task.done():
             return
-        self._scheduled_backup_task = asyncio.create_task(
-            self._scheduled_backup_loop()
-        )
+        self._scheduled_backup_task = asyncio.create_task(self._scheduled_backup_loop())
 
     def _restart_scheduled_backup_task(self) -> None:
         if self._scheduled_backup_task and not self._scheduled_backup_task.done():
@@ -428,9 +420,7 @@ class BackupRestoreMixin:
             asyncio.get_running_loop()
         except RuntimeError:
             return
-        self._scheduled_backup_task = asyncio.create_task(
-            self._scheduled_backup_loop()
-        )
+        self._scheduled_backup_task = asyncio.create_task(self._scheduled_backup_loop())
 
     async def _scheduled_backup_loop(self) -> None:
         while True:
@@ -438,7 +428,9 @@ class BackupRestoreMixin:
             if not cfg.get("enabled"):
                 await asyncio.sleep(3600)
                 continue
-            delay = self._seconds_until_backup_time(str(cfg.get("backup_time") or "06:00"))
+            delay = self._seconds_until_backup_time(
+                str(cfg.get("backup_time") or "06:00")
+            )
             await asyncio.sleep(delay)
             try:
                 await self._sync_library_if_changed(caption_mode="none")
@@ -476,12 +468,12 @@ class BackupRestoreMixin:
                 file = next(iter(files.values()), None)
             if file is None:
                 raise ValueError("No backup file uploaded")
-            filename, encoded_mode, encoded_overwrite = self._decode_backup_import_filename(
-                str(file.filename or "backup.zip")
+            filename, encoded_mode, encoded_overwrite = (
+                self._decode_backup_import_filename(str(file.filename or "backup.zip"))
             )
-            library_mode = str(
-                form.get("library_mode") or encoded_mode or "merge"
-            ).strip().lower()
+            library_mode = (
+                str(form.get("library_mode") or encoded_mode or "merge").strip().lower()
+            )
             overwrite_plugin_config = self._to_bool(
                 form.get("overwrite_plugin_config"),
                 encoded_overwrite,
@@ -583,8 +575,13 @@ class BackupRestoreMixin:
                 manifest = self._read_json_zip_member(zf, "manifest.json")
                 if manifest.get("plugin") != PLUGIN_NAME:
                     raise ValueError("Invalid backup: plugin name does not match")
-                if self._to_int(manifest.get("format_version"), 0) != BACKUP_FORMAT_VERSION:
-                    raise ValueError("Invalid backup: unsupported backup format version")
+                if (
+                    self._to_int(manifest.get("format_version"), 0)
+                    != BACKUP_FORMAT_VERSION
+                ):
+                    raise ValueError(
+                        "Invalid backup: unsupported backup format version"
+                    )
 
                 config = (
                     self._read_json_zip_member(zf, "config.json")
@@ -627,7 +624,9 @@ class BackupRestoreMixin:
                 if not isinstance(config, dict):
                     raise ValueError("Invalid backup: config.json must be an object")
                 if not isinstance(image_index, dict):
-                    raise ValueError("Invalid backup: image_index.json must be an object")
+                    raise ValueError(
+                        "Invalid backup: image_index.json must be an object"
+                    )
                 if not isinstance(image_index.get("images"), dict):
                     image_index["images"] = {}
                 if not isinstance(collection_pool, dict):
@@ -687,15 +686,15 @@ class BackupRestoreMixin:
             "manifest": manifest,
             "config": config,
             "image_index": image_index,
-                "collection_pool": collection_pool,
-                "discarded_collection": discarded_collection,
-                "external_import_state": external_import_state,
-                "imagebed_import_state": imagebed_import_state,
-                "imagebed_discarded": imagebed_discarded,
-                "file_entries": file_entries,
-                "pending_file_entries": pending_file_entries,
-                "zip_path": str(zip_path),
-            }
+            "collection_pool": collection_pool,
+            "discarded_collection": discarded_collection,
+            "external_import_state": external_import_state,
+            "imagebed_import_state": imagebed_import_state,
+            "imagebed_discarded": imagebed_discarded,
+            "file_entries": file_entries,
+            "pending_file_entries": pending_file_entries,
+            "zip_path": str(zip_path),
+        }
 
     def _restore_backup(
         self,
@@ -998,7 +997,9 @@ class BackupRestoreMixin:
                             suffix = Path(rel_path).suffix.lower() or ".jpg"
                             save_rel_path = self._unique_collected_pending_rel_path(
                                 raw_item.get("group_id") or "group",
-                                self._to_int(raw_item.get("collected_at"), int(time.time())),
+                                self._to_int(
+                                    raw_item.get("collected_at"), int(time.time())
+                                ),
                                 suffix,
                             )
                             item_id = self._image_id(save_rel_path)
@@ -1116,13 +1117,8 @@ class BackupRestoreMixin:
             imported_state.get("warning_preferences_version"),
             0,
         )
-        if (
-            warning_preferences_version == 2
-            and isinstance(warning_preferences, dict)
-        ):
-            state["warning_preferences"] = self._json_safe_copy(
-                warning_preferences
-            )
+        if warning_preferences_version == 2 and isinstance(warning_preferences, dict):
+            state["warning_preferences"] = self._json_safe_copy(warning_preferences)
         else:
             state["warning_preferences"] = {}
         state["warning_preferences_version"] = 2
@@ -1413,7 +1409,10 @@ class BackupRestoreMixin:
             if key == TAG_CATEGORY_CONFIG_KEY:
                 self.config[key] = self._json_safe_copy(value)
                 applied_keys.append(key)
-                if isinstance(value, dict) and DEFAULT_CAPTION_PROVIDER_CONFIG_KEY in value:
+                if (
+                    isinstance(value, dict)
+                    and DEFAULT_CAPTION_PROVIDER_CONFIG_KEY in value
+                ):
                     self.config[DEFAULT_CAPTION_PROVIDER_CONFIG_KEY] = str(
                         value.get(DEFAULT_CAPTION_PROVIDER_CONFIG_KEY) or ""
                     ).strip()
@@ -1495,9 +1494,7 @@ class BackupRestoreMixin:
             by_rel[rel_path] = {
                 "tags": tags,
                 "auto_tags": auto_tags,
-                "manual_tags": self._normalize_tags(
-                    raw_item.get("manual_tags", tags)
-                ),
+                "manual_tags": self._normalize_tags(raw_item.get("manual_tags", tags)),
                 "manual_tags_override": self._to_bool(
                     raw_item.get("manual_tags_override"),
                     bool(tags and tags != auto_tags),
@@ -1736,4 +1733,3 @@ class BackupRestoreMixin:
 
     def _sha256_bytes(self, content: bytes) -> str:
         return hashlib.sha256(content).hexdigest()
-

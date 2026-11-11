@@ -74,7 +74,9 @@ class RetrievalMixin:
 
     def _log_proactive_emoji_outcome(self, outcome: str, **details: Any) -> None:
         detail_text = " ".join(
-            f"{key}={value}" for key, value in details.items() if value not in (None, "")
+            f"{key}={value}"
+            for key, value in details.items()
+            if value not in (None, "")
         )
         suffix = f"; {detail_text}" if detail_text else ""
         logger.info(
@@ -1854,36 +1856,48 @@ class RetrievalMixin:
             self.config["request_keywords"] = current["request_keywords"]
         self.config[USER_SEARCH_CONFIG_KEY] = current
 
-    def _ensure_caption_provider_setting_initialized(self) -> None:
-        raw = self.config.get(TAG_CATEGORY_CONFIG_KEY, {})
-        if not isinstance(raw, dict):
-            raw = {}
+    def _resolve_caption_provider_id(self) -> str:
+        """解析当前生效的图片转述模型（纯读取，无副作用）。
+
+        优先级：AstrBot 系统设置里的默认图片转述模型 > 插件配置 > 分类设置。
+        系统设置是权威来源，保证用户在 WebUI 系统设置里改过的模型重启后不被覆盖。
+        """
         provider_ids = self._available_chat_provider_ids()
-        provider_id = str(
+        raw = self.config.get(TAG_CATEGORY_CONFIG_KEY, {})
+        candidates = [
+            self._system_default_image_caption_provider_id(),
+            str(self.config.get(DEFAULT_CAPTION_PROVIDER_CONFIG_KEY) or ""),
+            str(raw.get(DEFAULT_CAPTION_PROVIDER_CONFIG_KEY) or "")
+            if isinstance(raw, dict)
+            else "",
+        ]
+        for candidate in candidates:
+            provider_id = str(candidate or "").strip()
+            if provider_id and provider_id in provider_ids:
+                return provider_id
+        return ""
+
+    def _ensure_caption_provider_setting_initialized(self) -> None:
+        """启动时同步转述模型配置，只单向补齐，不回写用户在系统设置里的选择。
+
+        - 系统已配置：把系统值同步进插件配置，绝不动系统设置；
+        - 系统为空：才用插件里的历史配置做一次首刷初始化。
+        """
+        provider_id = self._resolve_caption_provider_id()
+        if not provider_id:
+            return
+        if not self._system_default_image_caption_provider_id().strip():
+            self._set_system_default_image_caption_provider_id(provider_id)
+
+        raw = self.config.get(TAG_CATEGORY_CONFIG_KEY, {})
+        raw = dict(raw) if isinstance(raw, dict) else {}
+        stored = str(
             self.config.get(DEFAULT_CAPTION_PROVIDER_CONFIG_KEY) or ""
         ).strip()
-        if provider_id and provider_id not in provider_ids:
-            provider_id = ""
-        if not provider_id:
-            provider_id = str(
-                raw.get(DEFAULT_CAPTION_PROVIDER_CONFIG_KEY) or ""
-            ).strip()
-            if provider_id and provider_id not in provider_ids:
-                provider_id = ""
-        system_provider_id = self._system_default_image_caption_provider_id()
-        if system_provider_id and system_provider_id not in provider_ids:
-            system_provider_id = ""
-        if not provider_id and system_provider_id:
-            provider_id = system_provider_id
-        if provider_id:
-            self._set_system_default_image_caption_provider_id(provider_id)
-        if not provider_id:
+        stored_in_raw = str(raw.get(DEFAULT_CAPTION_PROVIDER_CONFIG_KEY) or "").strip()
+        if stored == provider_id and stored_in_raw == provider_id:
             return
         self.config[DEFAULT_CAPTION_PROVIDER_CONFIG_KEY] = provider_id
-        if raw.get(DEFAULT_CAPTION_PROVIDER_CONFIG_KEY) == provider_id:
-            self._save_plugin_config()
-            return
-        raw = dict(raw)
         raw[DEFAULT_CAPTION_PROVIDER_CONFIG_KEY] = provider_id
         self.config[TAG_CATEGORY_CONFIG_KEY] = self._tag_category_settings_for_storage(
             raw
@@ -1891,21 +1905,7 @@ class RetrievalMixin:
         self._save_plugin_config()
 
     def _caption_provider_id_for_ui(self) -> str:
-        provider_ids = self._available_chat_provider_ids()
-        provider_id = str(
-            self.config.get(DEFAULT_CAPTION_PROVIDER_CONFIG_KEY) or ""
-        ).strip()
-        if provider_id and provider_id in provider_ids:
-            return provider_id
-        raw = self.config.get(TAG_CATEGORY_CONFIG_KEY, {})
-        if isinstance(raw, dict) and DEFAULT_CAPTION_PROVIDER_CONFIG_KEY in raw:
-            provider_id = str(
-                raw.get(DEFAULT_CAPTION_PROVIDER_CONFIG_KEY) or ""
-            ).strip()
-            if provider_id and provider_id in provider_ids:
-                return provider_id
-        provider_id = self._system_default_image_caption_provider_id()
-        return provider_id if provider_id in provider_ids else ""
+        return self._resolve_caption_provider_id()
 
     def _available_chat_provider_ids(self) -> set[str]:
         return {
@@ -1951,7 +1951,9 @@ class RetrievalMixin:
         return str(provider_settings.get("default_image_caption_provider_id") or "")
 
     def _default_image_caption_provider_id(self) -> str:
-        provider_id = self._caption_provider_id_for_ui()
-        if provider_id:
-            self._set_system_default_image_caption_provider_id(provider_id)
-        return provider_id
+        """返回当前生效的转述模型，纯读取。
+
+        早期实现会在读取时把插件配置写回 AstrBot 全局设置，导致每次打标签、
+        每次 WebUI 拉取配置都会静默覆盖用户在系统设置里选的默认图片转述模型。
+        """
+        return self._resolve_caption_provider_id()

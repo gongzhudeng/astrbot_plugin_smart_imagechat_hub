@@ -115,7 +115,9 @@ class TaggingMixin:
         return normalized[:8]
 
     def _looks_like_text_content_tag(self, tag: str) -> bool:
-        if any(prefix in tag for prefix in ("文字", "文本", "台词", "字幕", "内容", "标语")):
+        if any(
+            prefix in tag for prefix in ("文字", "文本", "台词", "字幕", "内容", "标语")
+        ):
             return False
         return len(tag) >= 4 and bool(re.search(r"[\u4e00-\u9fffA-Za-z0-9]", tag))
 
@@ -152,4 +154,3 @@ class TaggingMixin:
         tokens = re.split(r"[_\-\s,，、.]+", stem)
         tags = [token for token in tokens if token]
         return (["图片"] + tags)[:7]
-

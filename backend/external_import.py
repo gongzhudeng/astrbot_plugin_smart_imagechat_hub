@@ -35,9 +35,7 @@ class ExternalImportMixin:
             data.setdefault("last_stat", {})
             data.setdefault("caption_paused", True)
             data.setdefault("warning_preferences", {})
-            stored_warning_preferences_version = data.get(
-                "warning_preferences_version"
-            )
+            stored_warning_preferences_version = data.get("warning_preferences_version")
             if not isinstance(data["imports"], dict):
                 data["imports"] = {}
             if not isinstance(data["manually_deleted_digests"], dict):
@@ -48,10 +46,13 @@ class ExternalImportMixin:
                 data["last_stat"] = {}
             if not isinstance(data["warning_preferences"], dict):
                 data["warning_preferences"] = {}
-            if self._to_int(
-                stored_warning_preferences_version,
-                0,
-            ) != EXTERNAL_IMPORT_WARNING_PREFERENCES_VERSION:
+            if (
+                self._to_int(
+                    stored_warning_preferences_version,
+                    0,
+                )
+                != EXTERNAL_IMPORT_WARNING_PREFERENCES_VERSION
+            ):
                 data["warning_preferences"] = {}
             data["warning_preferences_version"] = (
                 EXTERNAL_IMPORT_WARNING_PREFERENCES_VERSION
@@ -196,10 +197,7 @@ class ExternalImportMixin:
                 try:
                     if path.is_dir():
                         stack.append(path)
-                    elif (
-                        path.is_file()
-                        and path.suffix.lower() in SUPPORTED_IMAGE_EXTS
-                    ):
+                    elif path.is_file() and path.suffix.lower() in SUPPORTED_IMAGE_EXTS:
                         yield path
                 except OSError:
                     continue
@@ -237,12 +235,8 @@ class ExternalImportMixin:
             active = {}
         else:
             active = dict(active)
-            if (
-                active.get("status") == "running"
-                and (
-                    not self._external_import_task
-                    or self._external_import_task.done()
-                )
+            if active.get("status") == "running" and (
+                not self._external_import_task or self._external_import_task.done()
             ):
                 active["status"] = "stopped"
         last_stat = self._external_import_state.get("last_stat", {})
@@ -504,11 +498,13 @@ class ExternalImportMixin:
         if not self._external_caption_paused():
             return False
         rel_path = self._norm_rel_path(item.get("rel_path"))
-        return (
-            self._library_source_for_rel_path(rel_path, item)
-            == EXTERNAL_LIBRARY_SOURCE
-            and item.get("caption_status") in {"pending", "running", "failed"}
-        )
+        return self._library_source_for_rel_path(
+            rel_path, item
+        ) == EXTERNAL_LIBRARY_SOURCE and item.get("caption_status") in {
+            "pending",
+            "running",
+            "failed",
+        }
 
     async def _copy_external_import_image(
         self,
@@ -526,11 +522,14 @@ class ExternalImportMixin:
             return None
         if not valid_source:
             return None
-        safe_source = re.sub(
-            r"[^A-Za-z0-9_-]+",
-            "_",
-            str(source_rel_path or "external").strip("/\\") or "external",
-        ).strip("_") or "external"
+        safe_source = (
+            re.sub(
+                r"[^A-Za-z0-9_-]+",
+                "_",
+                str(source_rel_path or "external").strip("/\\") or "external",
+            ).strip("_")
+            or "external"
+        )
         target_rel_path = self._unique_upload_rel_path(
             EXTERNAL_IMPORT_FOLDER,
             f"{safe_source}-{source_path.name}",
@@ -614,7 +613,9 @@ class ExternalImportMixin:
             raise ValueError("image file missing")
         return self._external_import_thumbnail_path(item) or image_path
 
-    def _remember_external_import_source(self, source_rel_path: str, digest: str) -> None:
+    def _remember_external_import_source(
+        self, source_rel_path: str, digest: str
+    ) -> None:
         source_rel_path = str(source_rel_path or "").strip()
         imports = self._external_import_state.setdefault("imports", {})
         if not isinstance(imports, dict):

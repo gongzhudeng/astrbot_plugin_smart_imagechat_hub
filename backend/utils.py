@@ -36,8 +36,7 @@ class UtilityMixin:
                     temp_dir = Path(tempfile.gettempdir())
                     temp_dir.mkdir(parents=True, exist_ok=True)
                     temp_path = (
-                        temp_dir
-                        / f"smart_imagechat_caption_{uuid.uuid4().hex}.jpg"
+                        temp_dir / f"smart_imagechat_caption_{uuid.uuid4().hex}.jpg"
                     )
                     frame.save(temp_path, "JPEG", quality=92, optimize=True)
                     frame.close()
@@ -274,7 +273,9 @@ class UtilityMixin:
 
     def _tags_for_library_path(self, image_path: Path) -> list[str]:
         try:
-            rel_path = image_path.resolve().relative_to(self.data_dir.resolve()).as_posix()
+            rel_path = (
+                image_path.resolve().relative_to(self.data_dir.resolve()).as_posix()
+            )
         except ValueError:
             return []
         item = self._index_image_by_id(self._image_id(rel_path))
@@ -394,7 +395,12 @@ class UtilityMixin:
         for part in key_path.split("."):
             cleaned = []
             for ch in part:
-                if ("a" <= ch <= "z") or ("A" <= ch <= "Z") or ch.isdigit() or ch in {"-", "_"}:
+                if (
+                    ("a" <= ch <= "z")
+                    or ("A" <= ch <= "Z")
+                    or ch.isdigit()
+                    or ch in {"-", "_"}
+                ):
                     cleaned.append(ch)
                 else:
                     cleaned.append("_")

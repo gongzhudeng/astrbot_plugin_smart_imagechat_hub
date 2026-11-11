@@ -353,4 +353,3 @@ class ConfigSchemaMixin:
             provider_schema.pop("labels", None)
             provider_schema["options"] = options
             provider_schema["obvious_hint"] = not bool(current_provider_id)
-

@@ -82,7 +82,9 @@ class MemeCombatMixin:
         if queue is None:
             return False
         try:
-            images = tuple(comp for comp in event.get_messages() if isinstance(comp, Image))
+            images = tuple(
+                comp for comp in event.get_messages() if isinstance(comp, Image)
+            )
             plain_parts = tuple(
                 str(comp.text or "")
                 for comp in event.get_messages()
@@ -157,9 +159,7 @@ class MemeCombatMixin:
             },
             "image_burst": {
                 "enabled": self._to_bool(burst.get("enabled"), True),
-                "trigger_probability": str(
-                    max(0.0, min(burst_probability, 1.0))
-                ),
+                "trigger_probability": str(max(0.0, min(burst_probability, 1.0))),
                 "burst_count": max(1, min(burst_count, 6)),
             },
             "battle": {
@@ -220,17 +220,19 @@ class MemeCombatMixin:
         if not isinstance(event, AstrMessageEvent):
             return
         group_id = str(
-            job.get("group_id") if isinstance(job, dict) else event.get_group_id()
-            or ""
+            job.get("group_id") if isinstance(job, dict) else event.get_group_id() or ""
         ).strip()
         if not group_id:
             return
-        images = list(job.get("images") or []) if isinstance(job, dict) else [
-            comp for comp in event.get_messages() if isinstance(comp, Image)
-        ]
+        images = (
+            list(job.get("images") or [])
+            if isinstance(job, dict)
+            else [comp for comp in event.get_messages() if isinstance(comp, Image)]
+        )
         sender_id = str(
-            job.get("sender_id") if isinstance(job, dict) else event.get_sender_id()
-            or ""
+            job.get("sender_id")
+            if isinstance(job, dict)
+            else event.get_sender_id() or ""
         ).strip()
         self_id = str(
             job.get("self_id") if isinstance(job, dict) else event.get_self_id() or ""
@@ -478,7 +480,9 @@ class MemeCombatMixin:
             value = str(values.get(key) or "").strip()
             if (
                 value
-                and not value.startswith(("http://", "https://", "base64://", "file://"))
+                and not value.startswith(
+                    ("http://", "https://", "base64://", "file://")
+                )
                 and not Path(value).is_file()
             ):
                 return f"{key}:{value}"
@@ -898,11 +902,12 @@ class MemeCombatMixin:
         try:
             for index, path in enumerate(paths, start=1):
                 try:
-                    prepared_path, cleanup = (
-                        await self._prepare_meme_battle_analysis_image_input(
-                            path,
-                            index,
-                        )
+                    (
+                        prepared_path,
+                        cleanup,
+                    ) = await self._prepare_meme_battle_analysis_image_input(
+                        path,
+                        index,
                     )
                     cleanup_paths.extend(cleanup)
                     prepared_paths.append(
@@ -919,7 +924,9 @@ class MemeCombatMixin:
             if len(prepared_paths) < 2:
                 return ""
 
-            inherits_current = self._provider_id_inherits_current_chat_model(provider_id)
+            inherits_current = self._provider_id_inherits_current_chat_model(
+                provider_id
+            )
             if inherits_current:
 
                 async def analyze_one(index: int, path: str) -> str:
@@ -1317,8 +1324,7 @@ class MemeCombatMixin:
             }
 
         top_score = max(
-            self._to_float(item.get("search_score"), 0.0)
-            for item in scored_candidates
+            self._to_float(item.get("search_score"), 0.0) for item in scored_candidates
         )
         pool = [
             item
@@ -1328,10 +1334,7 @@ class MemeCombatMixin:
         ][:SEARCH_SELECTION_POOL_SIZE]
         image_ids = [
             image_id
-            for image_id in (
-                str(item.get("id") or "").strip()
-                for item in pool
-            )
+            for image_id in (str(item.get("id") or "").strip() for item in pool)
             if image_id
         ]
         confidence = min(0.95, max(0.35, top_score / (top_score + 2.0)))

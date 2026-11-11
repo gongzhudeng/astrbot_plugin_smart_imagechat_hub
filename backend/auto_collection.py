@@ -108,7 +108,9 @@ class AutoCollectionMixin:
                     continue
                 rel_path = self._norm_rel_path(raw_item.get("image_path"))
                 if not rel_path:
-                    rel_path = self._rel_path_from_template_key(raw_item.get("__template_key"))
+                    rel_path = self._rel_path_from_template_key(
+                        raw_item.get("__template_key")
+                    )
                 if not rel_path:
                     continue
                 tags = self._normalize_tags(raw_item.get("tags", []))
@@ -162,7 +164,10 @@ class AutoCollectionMixin:
             item = images.get(self._image_id(rel_path))
             if not isinstance(item, dict):
                 continue
-            if self._library_source_for_rel_path(rel_path, item) != MANUAL_LIBRARY_SOURCE:
+            if (
+                self._library_source_for_rel_path(rel_path, item)
+                != MANUAL_LIBRARY_SOURCE
+            ):
                 continue
             auto_tags = self._normalize_tags(item.get("auto_tags", []))
             manual_tags = self._normalize_tags(item.get("manual_tags", []))
@@ -170,7 +175,9 @@ class AutoCollectionMixin:
             selected_global_tags = self._valid_global_tags(
                 item.get("selected_global_tags", [])
             )
-            display_tags = manual_tags if manual_override else (manual_tags or auto_tags)
+            display_tags = (
+                manual_tags if manual_override else (manual_tags or auto_tags)
+            )
             if manual_override:
                 merged_tags = self._merge_tags(display_tags, selected_global_tags)
             else:
@@ -244,8 +251,10 @@ class AutoCollectionMixin:
         if not images:
             return False
         if non_meme_filter_strategy not in {"none", "loose", "strict"}:
-            non_meme_filter_strategy = normalize_auto_collection_non_meme_filter_strategy(
-                self._auto_collection_config()
+            non_meme_filter_strategy = (
+                normalize_auto_collection_non_meme_filter_strategy(
+                    self._auto_collection_config()
+                )
             )
         queue = self._auto_collection_queue
         if queue is None:
@@ -319,9 +328,7 @@ class AutoCollectionMixin:
             return
         sender_id = str(sender_id or "").strip()
         ignored_sender_ids = set(cfg.get("ignored_sender_ids", []))
-        if ignored_sender_ids and (
-            _qq_id_candidates(sender_id) & ignored_sender_ids
-        ):
+        if ignored_sender_ids and (_qq_id_candidates(sender_id) & ignored_sender_ids):
             return
         if not images:
             return
@@ -330,9 +337,7 @@ class AutoCollectionMixin:
 
         accepted_any = False
         strategy = str(
-            non_meme_filter_strategy
-            or cfg.get("non_meme_filter_strategy")
-            or "loose"
+            non_meme_filter_strategy or cfg.get("non_meme_filter_strategy") or "loose"
         ).strip()
         if strategy not in {"none", "loose", "strict"}:
             strategy = normalize_auto_collection_non_meme_filter_strategy(cfg)
@@ -363,10 +368,7 @@ class AutoCollectionMixin:
             if not self._is_allowed_image(source_path):
                 self._cleanup_auto_collection_temp_path(image_path)
                 continue
-            if (
-                strategy == "loose"
-                and self._is_obvious_non_meme_image(source_path)
-            ):
+            if strategy == "loose" and self._is_obvious_non_meme_image(source_path):
                 self._cleanup_auto_collection_temp_path(image_path)
                 continue
             try:
@@ -845,9 +847,10 @@ class AutoCollectionMixin:
         timestamp: int,
         suffix: str,
     ) -> str:
-        safe_group = re.sub(r"[^A-Za-z0-9_-]+", "_", str(group_id or "group")).strip(
-            "_"
-        ) or "group"
+        safe_group = (
+            re.sub(r"[^A-Za-z0-9_-]+", "_", str(group_id or "group")).strip("_")
+            or "group"
+        )
         suffix = suffix if suffix in SUPPORTED_IMAGE_EXTS else ".jpg"
         index = 1
         while True:
@@ -933,7 +936,9 @@ class AutoCollectionMixin:
                 continue
             rel_path = self._norm_rel_path(item.get("rel_path"))
             collected_at = self._to_int(item.get("collected_at"), 0)
-            expired = bool(ttl_seconds and collected_at and now - collected_at > ttl_seconds)
+            expired = bool(
+                ttl_seconds and collected_at and now - collected_at > ttl_seconds
+            )
             missing = True
             if rel_path:
                 try:
@@ -982,9 +987,7 @@ class AutoCollectionMixin:
     ) -> dict[str, Any]:
         discarded = []
         skipped = []
-        remember_discarded = self._auto_collection_config().get(
-            "auto_reject_discarded"
-        )
+        remember_discarded = self._auto_collection_config().get("auto_reject_discarded")
         discarded_digests = []
         for image_id in image_ids:
             item = self._remove_collection_pool_item(image_id, delete_file=True)
@@ -1221,7 +1224,9 @@ class AutoCollectionMixin:
                 deleted += 1
         return deleted
 
-    def _solidified_library_order_key(self, item: dict[str, Any]) -> tuple[int, int, str]:
+    def _solidified_library_order_key(
+        self, item: dict[str, Any]
+    ) -> tuple[int, int, str]:
         rel_path = self._norm_rel_path(item.get("rel_path"))
         created_at = self._solidified_library_created_at(item, rel_path)
         return (
@@ -1298,7 +1303,7 @@ class AutoCollectionMixin:
                 item.get("solidified_at") or item.get("updated_at"),
                 0,
             )
-            )
+        )
         overflow = max(0, len(solidified) - limit)
         for item in solidified[:overflow]:
             self._delete_image(
@@ -1313,4 +1318,3 @@ class AutoCollectionMixin:
             return None
         item = images.get(str(image_id or "").strip())
         return item if isinstance(item, dict) else None
-

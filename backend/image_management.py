@@ -71,7 +71,9 @@ class ImageManagementMixin:
                     )
                     if tag in allowed
                 ]
-                if selected == self._normalize_tags(item.get("selected_global_tags", [])):
+                if selected == self._normalize_tags(
+                    item.get("selected_global_tags", [])
+                ):
                     continue
                 item["selected_global_tags"] = selected
                 item["tags"] = self._tags_from_item(item)
@@ -217,4 +219,3 @@ class ImageManagementMixin:
                 },
             },
         }
-
